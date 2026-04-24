@@ -26,7 +26,6 @@
     </tr>
   </table>
 </div>
----
 
 ## 📖 ¿Qué hace este proyecto?
 
