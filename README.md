@@ -15,7 +15,7 @@
 ## Vista previa:
 
 <div align="center">
-  <img src="Captura de pantalla 2026-04-22 013005.png" width="350" alt="Victory" />
+  <img src="Captura de pantalla 2026-04-22 013005.png" width="1080" alt="Victory" />
 </div>
 
 ## 📖 ¿Qué hace este proyecto?
