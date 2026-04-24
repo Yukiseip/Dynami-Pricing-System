@@ -12,17 +12,17 @@
 
 ---
 
-## Vista previa:
+**🛠️ System Preview:**
 
 <div align="center">
-  <table>
+  <table border="0">
     <tr>
-      <td width="50%"><img src="Captura de pantalla 2026-04-22 013005.png" alt="Victory 1"></td>
-      <td width="50%"><img src="Captura de pantalla 2.png" alt="Victory 2"></td>
+      <td><img src="Captura de pantalla 2026-04-22 013005.png" width="100%" alt="Dashboard Overview"></td>
+      <td><img src="Captura de pantalla 2026-04-22 013014.png" width="100%" alt="Data Processing"></td>
     </tr>
     <tr>
-      <td width="50%"><img src="Captura de pantalla 3.png" alt="Victory 3"></td>
-      <td width="50%"><img src="Captura de pantalla 4.png" alt="Victory 4"></td>
+      <td><img src="Captura de pantalla 2026-04-22 013346.png" width="100%" alt="AI Analysis"></td>
+      <td><img src="Captura de pantalla 2026-04-22 013356.png" width="100%" alt="System Logs"></td>
     </tr>
   </table>
 </div>
