@@ -17,12 +17,12 @@
 <div align="center">
   <table border="0">
     <tr>
-      <td><img src="Captura de pantalla 2026-04-22 013005.png" width="100%" alt="Dashboard Overview"></td>
-      <td><img src="Captura de pantalla 2026-04-22 013014.png" width="100%" alt="Data Processing"></td>
+      <td><img src="Captura de pantalla 2026-04-22 013005.png" width="100%" alt="Airflow"></td>
+      <td><img src="Captura de pantalla 2026-04-22 013014.png" width="100%" alt="Dashboard"></td>
     </tr>
     <tr>
-      <td><img src="Captura de pantalla 2026-04-22 013346.png" width="100%" alt="AI Analysis"></td>
-      <td><img src="Captura de pantalla 2026-04-22 013356.png" width="100%" alt="System Logs"></td>
+      <td><img src="Captura de pantalla 2026-04-22 013346.png" width="100%" alt="Dashborad2"></td>
+      <td><img src="Captura de pantalla 2026-04-22 013356.png" width="100%" alt="Metricas"></td>
     </tr>
   </table>
 </div>
