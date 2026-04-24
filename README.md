@@ -15,7 +15,16 @@
 ## Vista previa:
 
 <div align="center">
-  <img src="Captura de pantalla 2026-04-22 013005.png" width="1080" alt="Victory" />
+  <table>
+    <tr>
+      <td width="50%"><img src="Captura de pantalla 2026-04-22 013005.png" alt="Victory 1"></td>
+      <td width="50%"><img src="Captura de pantalla 2.png" alt="Victory 2"></td>
+    </tr>
+    <tr>
+      <td width="50%"><img src="Captura de pantalla 3.png" alt="Victory 3"></td>
+      <td width="50%"><img src="Captura de pantalla 4.png" alt="Victory 4"></td>
+    </tr>
+  </table>
 </div>
 
 ## 📖 ¿Qué hace este proyecto?
