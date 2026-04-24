@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: fct_pricing_signals
+    description: "Tabla analítica principal con señales agregadas para el motor de pricing"
+    columns:
+      - name: product_id
+        tests: [not_null, unique]
+      - name: cost_price
+        tests: [not_null]
+      - name: current_price
+        tests: [not_null]
+      - name: stock_status
+        tests:
+          - accepted_values:
+              values: ['out_of_stock', 'critical_low', 'normal', 'overstock']
+      - name: price_position
+        tests:
+          - accepted_values:
+              values: ['no_competition_data', 'much_cheaper', 'cheaper', 'at_market', 'more_expensive', 'much_more_expensive']

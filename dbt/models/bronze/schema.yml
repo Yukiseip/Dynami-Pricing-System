@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: bronze
+    schema: bronze
+    tables:
+      - name: raw_products
+        description: "Catálogo de productos propios - datos crudos"
+        columns:
+          - name: product_id
+            tests: [not_null, unique]
+          - name: current_price
+            tests: [not_null]
+          - name: cost_price
+            tests: [not_null]
+
+      - name: raw_competitors
+        description: "Precios de competencia - datos crudos"
+        columns:
+          - name: product_id_own
+            tests: [not_null]
+          - name: competitor_price
+            tests: [not_null]
+
+      - name: raw_inventory
+        description: "Inventario y métricas de demanda - datos crudos"
+        columns:
+          - name: product_id
+            tests: [not_null, unique]
+          - name: stock
+            tests: [not_null]

@@ -1,0 +1,4181 @@
+# DYNAMIC PRICING SYSTEM — MASTER EXECUTION PLAN
+## Guía paso a paso para Claude Code
+
+> **Cómo usar este documento:** Cada fase es un bloque de instrucciones autónomo.
+> Claude Code debe ejecutar cada fase en orden. Antes de avanzar a la siguiente fase,
+> verificar que todos los checkpoints de la fase actual estén en estado ✅.
+
+---
+
+## ÍNDICE DE FASES
+
+| Fase | Nombre | Días | Entregable Principal |
+|------|--------|------|----------------------|
+| 0 | Setup y Fundamentos | 1-2 | Repo + Docker Compose funcional |
+| 1 | Datos y Modelado | 3-5 | Datos sintéticos + DAG de ingesta |
+| 2 | Calidad y Transformación | 6-8 | dbt models + validaciones |
+| 3 | Matching Inteligente | 9-11 | Embeddings + Qdrant funcionando |
+| 4 | Motor de Pricing | 12-14 | Engine con tests unitarios |
+| 5 | API y Dashboard | 15-17 | FastAPI + Streamlit |
+| 6 | Orquestación End-to-End | 18-20 | DAG maestro automatizado |
+| 7 | IaC y Polish | 21-23 | README + Terraform + repo final |
+
+---
+
+---
+
+# FASE 0: SETUP Y FUNDAMENTOS
+## Días 1-2 | Objetivo: Entorno 100% reproducible
+
+---
+
+## PASO 0.1 — Crear estructura de directorios del repositorio
+
+**Instrucción para Claude Code:**
+Crear la siguiente estructura de directorios desde la raíz del proyecto.
+No crear archivos de contenido aún, solo la estructura de carpetas y archivos vacíos/placeholder.
+
+```
+dynamic-pricing-de/
+├── docker/
+│   ├── Dockerfile.airflow
+│   ├── Dockerfile.api
+│   └── Dockerfile.dbt
+├── src/
+│   ├── __init__.py
+│   ├── ingestion/
+│   │   ├── __init__.py
+│   │   ├── ingest_catalog.py
+│   │   ├── ingest_competitors.py
+│   │   └── ingest_inventory.py
+│   ├── matching/
+│   │   ├── __init__.py
+│   │   ├── embeddings.py
+│   │   └── matcher.py
+│   ├── pricing/
+│   │   ├── __init__.py
+│   │   ├── engine.py
+│   │   ├── rules.py
+│   │   └── config.py
+│   └── api/
+│       ├── __init__.py
+│       ├── main.py
+│       ├── routes/
+│       │   ├── __init__.py
+│       │   ├── pricing.py
+│       │   └── matches.py
+│       └── schemas.py
+├── dbt/
+│   ├── dbt_project.yml
+│   ├── profiles.yml
+│   ├── models/
+│   │   ├── bronze/
+│   │   │   ├── schema.yml
+│   │   │   ├── raw_products.sql
+│   │   │   ├── raw_competitors.sql
+│   │   │   └── raw_inventory.sql
+│   │   ├── silver/
+│   │   │   ├── schema.yml
+│   │   │   ├── stg_products.sql
+│   │   │   ├── stg_competitor_prices.sql
+│   │   │   └── stg_inventory.sql
+│   │   └── gold/
+│   │       ├── schema.yml
+│   │       ├── fct_pricing_signals.sql
+│   │       └── product_matches.sql
+│   └── tests/
+│       ├── test_price_positive.sql
+│       └── test_margin_valid.sql
+├── airflow/
+│   ├── dags/
+│   │   ├── dag_ingest_daily.py
+│   │   ├── dag_validate_data.py
+│   │   ├── dag_run_dbt.py
+│   │   ├── dag_matching.py
+│   │   ├── dag_pricing_engine.py
+│   │   └── dag_dynamic_pricing_pipeline.py
+│   └── plugins/
+│       └── __init__.py
+├── dashboard/
+│   ├── app.py
+│   └── components/
+│       ├── kpis.py
+│       ├── charts.py
+│       └── filters.py
+├── data/
+│   ├── raw/
+│   │   └── .gitkeep
+│   ├── processed/
+│   │   └── .gitkeep
+│   └── .gitignore
+├── tests/
+│   ├── __init__.py
+│   ├── test_pricing_engine.py
+│   ├── test_matching.py
+│   └── test_api.py
+├── notebooks/
+│   └── 01_eda_pricing_analysis.ipynb
+├── scripts/
+│   ├── generate_datasets.py
+│   └── seed_database.py
+├── config/
+│   └── pricing_config.yaml
+├── terraform/
+│   ├── main.tf
+│   ├── variables.tf
+│   └── outputs.tf
+├── .env.example
+├── .env
+├── .gitignore
+├── docker-compose.yml
+├── pyproject.toml
+├── requirements.txt
+└── README.md
+```
+
+**Checkpoint 0.1:** ✅ `ls -la dynamic-pricing-de/` muestra todas las carpetas listadas.
+
+---
+
+## PASO 0.2 — Crear archivo `.gitignore`
+
+**Instrucción para Claude Code:**
+Crear el archivo `.gitignore` en la raíz con el siguiente contenido:
+
+```gitignore
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# Data (archivos grandes)
+data/raw/*.csv
+data/raw/*.parquet
+data/processed/
+*.db
+
+# dbt
+dbt/target/
+dbt/.user.yml
+dbt/logs/
+
+# Airflow
+airflow/logs/
+airflow/plugins/__pycache__/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+postgres_data/
+qdrant_data/
+minio_data/
+
+# Terraform state
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+```
+
+---
+
+## PASO 0.3 — Crear archivo `.env.example` y `.env`
+
+**Instrucción para Claude Code:**
+Crear `.env.example` con todas las variables necesarias (sin valores secretos reales).
+Luego crear `.env` con valores por defecto para desarrollo local.
+
+**Archivo `.env.example`:**
+```env
+# ===== POSTGRESQL =====
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=dynamic_pricing
+POSTGRES_USER=pricing_user
+POSTGRES_PASSWORD=your_secure_password_here
+
+# ===== QDRANT =====
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_COLLECTION=product_embeddings
+
+# ===== MINIO (simula S3) =====
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=your_minio_password_here
+MINIO_BUCKET=pricing-artifacts
+
+# ===== AIRFLOW =====
+AIRFLOW_UID=50000
+AIRFLOW_GID=50000
+AIRFLOW__CORE__FERNET_KEY=your_fernet_key_here
+AIRFLOW__CORE__EXECUTOR=LocalExecutor
+AIRFLOW__WEBSERVER__SECRET_KEY=your_webserver_secret_here
+AIRFLOW_ADMIN_USER=admin
+AIRFLOW_ADMIN_PASSWORD=admin
+
+# ===== API =====
+API_HOST=0.0.0.0
+API_PORT=8000
+API_DEBUG=true
+
+# ===== MODELO NLP =====
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+SIMILARITY_THRESHOLD=0.85
+SIMILARITY_REVIEW_THRESHOLD=0.70
+
+# ===== PRICING ENGINE =====
+MIN_MARGIN_PCT=0.10
+MAX_DEMAND_ADJUSTMENT=0.10
+MAX_STOCK_ADJUSTMENT=0.05
+UNDERCUT_BUFFER=1.00
+```
+
+**Archivo `.env`** (valores para desarrollo local):
+```env
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=dynamic_pricing
+POSTGRES_USER=pricing_user
+POSTGRES_PASSWORD=pricing_pass_dev_2024
+
+QDRANT_HOST=qdrant
+QDRANT_PORT=6333
+QDRANT_COLLECTION=product_embeddings
+
+MINIO_ENDPOINT=minio:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin123
+
+AIRFLOW_UID=50000
+AIRFLOW_GID=50000
+AIRFLOW__CORE__FERNET_KEY=46BKJoQYlPPOexq0OhDZnIlNepKFf87WFwLt0nIe3aI=
+AIRFLOW__CORE__EXECUTOR=LocalExecutor
+AIRFLOW__WEBSERVER__SECRET_KEY=pricing_webserver_secret_2024
+AIRFLOW_ADMIN_USER=admin
+AIRFLOW_ADMIN_PASSWORD=admin
+
+API_HOST=0.0.0.0
+API_PORT=8000
+API_DEBUG=true
+
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+SIMILARITY_THRESHOLD=0.85
+SIMILARITY_REVIEW_THRESHOLD=0.70
+
+MIN_MARGIN_PCT=0.10
+MAX_DEMAND_ADJUSTMENT=0.10
+MAX_STOCK_ADJUSTMENT=0.05
+UNDERCUT_BUFFER=1.00
+```
+
+---
+
+## PASO 0.4 — Crear `docker-compose.yml`
+
+**Instrucción para Claude Code:**
+Crear el archivo `docker-compose.yml` en la raíz del proyecto con el siguiente contenido exacto.
+
+```yaml
+version: '3.8'
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.8.1-python3.11
+  env_file:
+    - .env
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/airflow_metadata
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    PYTHONPATH: /opt/airflow/src
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./src:/opt/airflow/src
+    - ./data:/opt/airflow/data
+    - ./config:/opt/airflow/config
+    - ./.env:/opt/airflow/.env
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # ===== POSTGRESQL =====
+  postgres:
+    image: postgres:15-alpine
+    container_name: pricing_postgres
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_MULTIPLE_DATABASES: dynamic_pricing,airflow_metadata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===== QDRANT =====
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: pricing_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===== MINIO (simula S3) =====
+  minio:
+    image: minio/minio:latest
+    container_name: pricing_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===== AIRFLOW INIT =====
+  airflow-init:
+    <<: *airflow-common
+    container_name: pricing_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db init
+        airflow db upgrade
+        airflow users create \
+          --username ${AIRFLOW_ADMIN_USER} \
+          --password ${AIRFLOW_ADMIN_PASSWORD} \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@pricing.com || true
+        echo "Airflow initialized successfully"
+    restart: on-failure
+
+  # ===== AIRFLOW WEBSERVER =====
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: pricing_airflow_webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ===== AIRFLOW SCHEDULER =====
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: pricing_airflow_scheduler
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ===== FASTAPI =====
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: pricing_api
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      QDRANT_HOST: qdrant
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ===== STREAMLIT DASHBOARD =====
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: pricing_dashboard
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      QDRANT_HOST: qdrant
+    command: streamlit run /app/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./dashboard:/app/dashboard
+      - ./src:/app/src
+      - ./config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  minio_data:
+```
+
+**Checkpoint 0.4:** ✅ `docker-compose config` no muestra errores.
+
+---
+
+## PASO 0.5 — Crear Dockerfiles
+
+**Instrucción para Claude Code:**
+Crear los siguientes Dockerfiles en el directorio `docker/`.
+
+**`docker/Dockerfile.api`:**
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencias de Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-descargar modelo de embeddings
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+COPY src/ ./src/
+COPY config/ ./config/
+COPY dashboard/ ./dashboard/
+
+ENV PYTHONPATH=/app
+
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+```
+
+**`docker/Dockerfile.airflow`:**
+```dockerfile
+FROM apache/airflow:2.8.1-python3.11
+
+USER root
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+USER airflow
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+```
+
+**`docker/postgres/init-multiple-dbs.sh`:**
+```bash
+#!/bin/bash
+set -e
+
+function create_db() {
+    local db=$1
+    echo "Creating database: $db"
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+        SELECT 'CREATE DATABASE $db'
+        WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db')\gexec
+        GRANT ALL PRIVILEGES ON DATABASE $db TO $POSTGRES_USER;
+EOSQL
+}
+
+create_db "dynamic_pricing"
+create_db "airflow_metadata"
+
+echo "Databases created successfully"
+```
+
+---
+
+## PASO 0.6 — Crear `requirements.txt` y `pyproject.toml`
+
+**Instrucción para Claude Code:**
+Crear `requirements.txt` en la raíz:
+
+```txt
+# Web framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Database
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+alembic==1.13.1
+
+# Vector DB
+qdrant-client==1.7.1
+
+# NLP / Embeddings
+sentence-transformers==2.3.1
+torch==2.1.2
+transformers==4.37.0
+
+# Data processing
+pandas==2.1.4
+numpy==1.26.3
+polars==0.20.3
+
+# dbt
+dbt-core==1.7.4
+dbt-postgres==1.7.4
+
+# Dashboard
+streamlit==1.30.0
+plotly==5.18.0
+
+# Data quality
+great-expectations==0.18.8
+
+# Object storage
+boto3==1.34.14
+minio==7.2.3
+
+# Utilities
+python-dotenv==1.0.0
+pyyaml==6.0.1
+loguru==0.7.2
+httpx==0.26.0
+
+# Testing
+pytest==7.4.4
+pytest-asyncio==0.23.3
+pytest-cov==4.1.0
+faker==22.2.0
+
+# Code quality
+ruff==0.1.14
+black==23.12.1
+
+# Airflow (solo para imagen airflow, no para API)
+# apache-airflow==2.8.1  # instalado en imagen base
+apache-airflow-providers-postgres==5.10.0
+apache-airflow-providers-http==4.7.0
+```
+
+**Instrucción para Claude Code:**
+Crear `pyproject.toml` en la raíz:
+
+```toml
+[tool.ruff]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+line-length = 100
+target-version = "py311"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+```
+
+**Checkpoint 0.5-0.6:** ✅ Todos los archivos de configuración existen en sus rutas correctas.
+
+---
+
+## PASO 0.7 — Crear `config/pricing_config.yaml`
+
+```yaml
+pricing_engine:
+  min_margin_pct: 0.10          # Margen mínimo 10%
+  undercut_buffer: 1.00         # $1 por debajo del competidor
+  max_adjustment_demand: 0.10   # +10% máximo por demanda alta
+  min_adjustment_demand: -0.05  # -5% mínimo por demanda baja
+  max_adjustment_stock_over: -0.05   # -5% si sobre-stock
+  max_adjustment_stock_under: 0.03   # +3% si bajo stock crítico
+  overstock_threshold: 400      # stock > 400 = sobre-stock
+  understock_threshold: 20      # stock < 20 = bajo stock crítico
+
+matching:
+  similarity_threshold_accept: 0.85    # >= 0.85: match aceptado
+  similarity_threshold_review: 0.70    # >= 0.70: revisión manual
+  top_k_candidates: 3                  # Top 3 candidatos por producto
+  embedding_model: "all-MiniLM-L6-v2"
+
+data_quality:
+  min_price: 0.01
+  max_price: 100000.00
+  min_stock: 0
+  max_stock: 100000
+  min_margin: 0.0
+
+pipeline:
+  retry_count: 2
+  sla_minutes: 10
+  schedule: "@hourly"
+```
+
+---
+
+## CHECKPOINT FASE 0 — Validación completa
+
+**Instrucción para Claude Code:**
+Ejecutar los siguientes comandos para verificar que la fase 0 está completa:
+
+```bash
+# 1. Verificar estructura de directorios
+find dynamic-pricing-de -type f | sort
+
+# 2. Verificar que docker-compose es válido
+cd dynamic-pricing-de && docker-compose config --quiet && echo "✅ docker-compose.yml válido"
+
+# 3. Levantar servicios de infraestructura base
+docker-compose up -d postgres qdrant minio
+
+# 4. Esperar y verificar health checks
+sleep 30
+docker-compose ps
+
+# 5. Verificar conexión a PostgreSQL
+docker exec pricing_postgres pg_isready -U pricing_user -d dynamic_pricing && echo "✅ PostgreSQL OK"
+
+# 6. Verificar Qdrant
+curl -s http://localhost:6333/healthz && echo "✅ Qdrant OK"
+
+# 7. Verificar MinIO
+curl -s http://localhost:9000/minio/health/live && echo "✅ MinIO OK"
+```
+
+**FASE 0 COMPLETA cuando:** Los 7 checkpoints anteriores muestran ✅
+
+---
+---
+
+# FASE 1: DATOS Y MODELADO
+## Días 3-5 | Objetivo: Datos creíbles y pipeline de ingesta funcional
+
+---
+
+## PASO 1.1 — Crear script generador de datasets: `scripts/generate_datasets.py`
+
+**Instrucción para Claude Code:**
+Este es el script más importante de la Fase 1. Genera todos los datos sintéticos que el sistema usará.
+Crear el archivo `scripts/generate_datasets.py` con el siguiente contenido completo y funcional:
+
+```python
+"""
+generate_datasets.py
+====================
+Genera automáticamente todos los datasets necesarios para el sistema de Dynamic Pricing.
+Produce: catalog.csv, competitors.csv, inventory_demand.csv
+
+Uso:
+    python scripts/generate_datasets.py
+    python scripts/generate_datasets.py --output-dir data/raw --seed 42 --n-products 1000
+
+Notas:
+    - Reproducible con --seed fijo
+    - No requiere dataset externo (100% sintético pero realista)
+    - Usa distribuciones de precio reales del mercado de electrónica
+"""
+
+import argparse
+import random
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from faker import Faker
+
+fake = Faker(["en_US"])
+
+
+# ============================================================
+# CONFIGURACIÓN DE CATEGORÍAS Y DISTRIBUCIONES
+# ============================================================
+
+CATEGORIES = {
+    "Accessories": {
+        "weight": 0.40,
+        "price_range": (10, 100),
+        "examples": [
+            "USB-C Cable {brand} {model}",
+            "Wireless Mouse {brand}",
+            "Mechanical Keyboard {brand} {model}",
+            "HDMI Cable {spec} {length}m",
+            "Phone Case {brand} {model}",
+            "Screen Protector {brand}",
+            "Webcam {brand} {resolution}p",
+            "USB Hub {brand} {ports}-Port",
+            "Laptop Stand {brand}",
+            "Cable Management Kit {brand}",
+        ],
+    },
+    "Audio": {
+        "weight": 0.30,
+        "price_range": (50, 400),
+        "examples": [
+            "Wireless Headphones {brand} {model}",
+            "True Wireless Earbuds {brand} {model}",
+            "Bluetooth Speaker {brand} {model}",
+            "Noise Canceling Headset {brand}",
+            "Studio Monitor {brand} {size}-inch",
+            "Soundbar {brand} {watts}W",
+            "Gaming Headset {brand} {model}",
+        ],
+    },
+    "Tablets": {
+        "weight": 0.15,
+        "price_range": (200, 1200),
+        "examples": [
+            "Tablet {brand} {model} {storage}GB",
+            "Android Tablet {brand} {screen}-inch",
+            "Drawing Tablet {brand} {model}",
+            "E-Reader {brand} {model} {storage}GB",
+        ],
+    },
+    "Laptops": {
+        "weight": 0.10,
+        "price_range": (500, 2500),
+        "examples": [
+            "Laptop {brand} {model} {ram}GB RAM {storage}GB SSD",
+            "Gaming Laptop {brand} {model} {gpu}",
+            "Ultrabook {brand} {model} {screen}-inch",
+            "Chromebook {brand} {model}",
+        ],
+    },
+    "Smart Home": {
+        "weight": 0.05,
+        "price_range": (30, 300),
+        "examples": [
+            "Smart Bulb {brand} {watts}W",
+            "Smart Plug {brand} {model}",
+            "Security Camera {brand} {resolution}p",
+            "Smart Doorbell {brand} {model}",
+        ],
+    },
+}
+
+BRANDS = [
+    "Logitech", "Anker", "Belkin", "JBL", "Sony", "Samsung", "LG", "Asus",
+    "Dell", "HP", "Lenovo", "Acer", "Razer", "SteelSeries", "HyperX",
+    "Corsair", "Jabra", "Bose", "Sennheiser", "AudioTechnica", "Plantronics",
+    "Philips", "TP-Link", "Netgear", "Western Digital", "Seagate", "Crucial",
+    "Kingston", "Sandisk", "Elgato", "Rode", "Blue", "Focusrite",
+]
+
+MODELS = [
+    "Pro", "Elite", "Ultra", "Max", "Plus", "X", "S", "Mini", "Lite",
+    "Air", "Neo", "One", "Go", "Flex", "Edge", "Prime", "Core", "Boost",
+    "V2", "V3", "Gen2", "Gen3", "2023", "2024", "SE", "HD",
+]
+
+COMPETITOR_NAMES = [
+    "TechZone", "ElectroMart", "GadgetHub", "DigiStore", "ByteShop",
+    "CircuitCity", "VoltMarket", "PixelPro", "NanoTech", "MegaBytes",
+]
+
+COMPETITOR_AGGRESSIVENESS = {
+    "TechZone": "medium",
+    "ElectroMart": "low",
+    "GadgetHub": "high",
+    "DigiStore": "medium",
+    "ByteShop": "high",
+    "CircuitCity": "low",
+    "VoltMarket": "medium",
+    "PixelPro": "low",
+    "NanoTech": "high",
+    "MegaBytes": "medium",
+}
+
+
+# ============================================================
+# GENERADORES DE NOMBRES
+# ============================================================
+
+def generate_product_name(category: str, rng: np.random.Generator) -> str:
+    """Genera nombre de producto realista para una categoría dada."""
+    template = rng.choice(CATEGORIES[category]["examples"])
+    brand = rng.choice(BRANDS)
+    model = rng.choice(MODELS)
+
+    replacements = {
+        "{brand}": brand,
+        "{model}": model,
+        "{spec}": rng.choice(["4K", "8K", "FHD", "QHD"]),
+        "{length}": str(rng.choice([1, 2, 3, 5])),
+        "{resolution}": str(rng.choice([720, 1080, 1440, 4096])),
+        "{ports}": str(rng.choice([4, 7, 10, 13])),
+        "{size}": str(rng.choice([5, 6, 8])),
+        "{screen}": str(rng.choice([11, 13, 14, 15, 16, 17])),
+        "{watts}": str(rng.choice([9, 13, 18, 25, 60, 100])),
+        "{storage}": str(rng.choice([64, 128, 256, 512, 1000])),
+        "{ram}": str(rng.choice([8, 16, 32, 64])),
+        "{gpu}": rng.choice(["RTX 4060", "RTX 4070", "RX 7600", "Arc A770"]),
+    }
+
+    for placeholder, value in replacements.items():
+        template = template.replace(placeholder, value)
+    return template
+
+
+def generate_competitor_product_name(original_name: str, rng: np.random.Generator) -> str:
+    """
+    Genera variación semántica del nombre de producto para simular
+    como competidores describen el mismo producto con nombres diferentes.
+    """
+    words = original_name.split()
+    variations = []
+
+    for word in words:
+        r = rng.random()
+        if r < 0.05:  # 5%: omitir palabra poco relevante
+            if word.lower() not in ["with", "and", "for", "the"]:
+                variations.append(word)
+        elif r < 0.10:  # 5%: abreviar
+            if len(word) > 5:
+                variations.append(word[:3] + ".")
+            else:
+                variations.append(word)
+        else:  # 90%: mantener igual
+            variations.append(word)
+
+    # Ocasionalmente agregar sufijo de competidor
+    if rng.random() < 0.20:
+        suffixes = ["- Black", "- White", "- Silver", "(Refurbished)", "(Bundle)"]
+        variations.append(rng.choice(suffixes))
+
+    return " ".join(variations)
+
+
+# ============================================================
+# GENERADORES DE PRECIOS
+# ============================================================
+
+def simulate_competitor_price(
+    base_price: float, aggressiveness: str, rng: np.random.Generator
+) -> float:
+    """Simula precio de competidor según su nivel de agresividad comercial."""
+    multipliers = {
+        "low": (0.95, 1.20),     # Competidor premium / menos agresivo
+        "medium": (0.85, 1.10),  # Competidor promedio
+        "high": (0.75, 0.95),    # Competidor agresivo en precio
+    }
+    low, high = multipliers.get(aggressiveness, (0.85, 1.10))
+    price = base_price * rng.uniform(low, high)
+    return round(price, 2)
+
+
+# ============================================================
+# GENERADORES DE MÉTRICAS DE DEMANDA
+# ============================================================
+
+def generate_demand_metrics(
+    product_id: str,
+    category: str,
+    price: float,
+    rng: np.random.Generator,
+) -> dict:
+    """
+    Genera métricas de demanda realistas.
+    Productos de bajo precio tienen más ventas que los de alto precio.
+    """
+    max_price = CATEGORIES[category]["price_range"][1]
+    price_factor = 1 - (price / max_price) * 0.6  # Más caro = menos ventas
+
+    if category in ["Laptops", "Tablets"]:
+        base_daily_sales = rng.normal(3, 1) * price_factor
+        base_daily_visits = rng.normal(50, 15) * price_factor
+    elif category == "Audio":
+        base_daily_sales = rng.normal(10, 3) * price_factor
+        base_daily_visits = rng.normal(120, 30) * price_factor
+    elif category == "Accessories":
+        base_daily_sales = rng.normal(25, 8) * price_factor
+        base_daily_visits = rng.normal(200, 50) * price_factor
+    else:  # Smart Home
+        base_daily_sales = rng.normal(8, 2) * price_factor
+        base_daily_visits = rng.normal(80, 20) * price_factor
+
+    sales_7d = max(0, int(base_daily_sales * 7 + rng.normal(0, 2)))
+    sales_30d = max(0, int(sales_7d * 4 + rng.normal(0, 5)))
+    visits_7d = max(1, int(base_daily_visits * 7 + rng.normal(0, 10)))
+
+    velocity_score = round(sales_7d / max(visits_7d, 1), 4)
+
+    return {
+        "sales_7d": sales_7d,
+        "sales_30d": sales_30d,
+        "visits_7d": visits_7d,
+        "velocity_score": velocity_score,
+    }
+
+
+# ============================================================
+# GENERADOR PRINCIPAL: CATÁLOGO
+# ============================================================
+
+def generate_catalog(n_products: int, rng: np.random.Generator) -> pd.DataFrame:
+    """Genera el catálogo completo de productos propios."""
+    print(f"📦 Generando catálogo con {n_products} productos...")
+
+    records = []
+    category_weights = [v["weight"] for v in CATEGORIES.values()]
+    category_names = list(CATEGORIES.keys())
+
+    for i in range(n_products):
+        product_id = f"SKU-{i+1:05d}"
+        category = rng.choice(category_names, p=category_weights)
+        name = generate_product_name(category, rng)
+
+        price_min, price_max = CATEGORIES[category]["price_range"]
+        base_price = round(float(rng.uniform(price_min, price_max)), 2)
+
+        cost_price = round(base_price * rng.uniform(0.60, 0.85), 2)
+        current_price = round(base_price * rng.uniform(0.95, 1.10), 2)
+
+        stock = int(rng.choice(
+            [rng.integers(0, 20), rng.integers(20, 100), rng.integers(100, 500)],
+            p=[0.20, 0.30, 0.50],
+        ))
+
+        demand = generate_demand_metrics(product_id, category, current_price, rng)
+
+        records.append({
+            "product_id": product_id,
+            "name": name,
+            "category": category,
+            "base_price": base_price,
+            "cost_price": cost_price,
+            "current_price": current_price,
+            "stock": stock,
+            **demand,
+            "created_at": datetime.now().isoformat(),
+        })
+
+    df = pd.DataFrame(records)
+    print(f"  ✅ Catálogo: {len(df)} productos en {df['category'].nunique()} categorías")
+    return df
+
+
+# ============================================================
+# GENERADOR: COMPETENCIA
+# ============================================================
+
+def generate_competitors(catalog: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+    """Genera datos de competencia con variaciones semánticas en nombres."""
+    print("🏪 Generando datos de competencia...")
+
+    records = []
+
+    for _, product in catalog.iterrows():
+        n_competitors = int(rng.choice([1, 2, 3], p=[0.30, 0.45, 0.25]))
+
+        competitors_for_product = rng.choice(
+            COMPETITOR_NAMES, size=n_competitors, replace=False
+        )
+
+        for competitor in competitors_for_product:
+            comp_name = generate_competitor_product_name(product["name"], rng)
+            aggressiveness = COMPETITOR_AGGRESSIVENESS[competitor]
+            comp_price = simulate_competitor_price(
+                product["base_price"], aggressiveness, rng
+            )
+
+            # Timestamp en las últimas 24 horas
+            hours_ago = rng.uniform(0, 24)
+            timestamp = datetime.now() - timedelta(hours=float(hours_ago))
+
+            records.append({
+                "competitor_id": competitor,
+                "product_id_own": product["product_id"],
+                "product_name_competitor": comp_name,
+                "category": product["category"],
+                "competitor_price": comp_price,
+                "timestamp": timestamp.isoformat(),
+                "is_confirmed_match": False,  # Pendiente de matching automático
+            })
+
+    df = pd.DataFrame(records)
+    print(f"  ✅ Competencia: {len(df)} registros de {df['competitor_id'].nunique()} competidores")
+    return df
+
+
+# ============================================================
+# GENERADOR: INVENTARIO Y DEMANDA (archivo separado para ingesta)
+# ============================================================
+
+def generate_inventory_demand(catalog: pd.DataFrame) -> pd.DataFrame:
+    """
+    Extrae y formatea las columnas de stock y demanda del catálogo
+    en un archivo separado para simular ingesta desde sistema de inventario.
+    """
+    print("📊 Generando archivo de inventario y demanda...")
+
+    df = catalog[[
+        "product_id", "stock", "sales_7d", "sales_30d",
+        "visits_7d", "velocity_score"
+    ]].copy()
+    df["updated_at"] = datetime.now().isoformat()
+
+    print(f"  ✅ Inventario: {len(df)} registros")
+    return df
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+    parser = argparse.ArgumentParser(description="Generador de datasets para Dynamic Pricing")
+    parser.add_argument("--output-dir", default="data/raw", help="Directorio de salida")
+    parser.add_argument("--seed", type=int, default=42, help="Semilla aleatoria")
+    parser.add_argument("--n-products", type=int, default=1000, help="Número de productos")
+    args = parser.parse_args()
+
+    # Semilla para reproducibilidad
+    random.seed(args.seed)
+    rng = np.random.default_rng(args.seed)
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n🚀 Iniciando generación de datasets (seed={args.seed}, n={args.n_products})\n")
+
+    # Generar catálogo
+    catalog = generate_catalog(args.n_products, rng)
+    catalog_path = output_dir / "catalog.csv"
+    catalog.to_csv(catalog_path, index=False)
+    print(f"  💾 Guardado: {catalog_path}")
+
+    # Generar competencia
+    competitors = generate_competitors(catalog, rng)
+    competitors_path = output_dir / "competitors.csv"
+    competitors.to_csv(competitors_path, index=False)
+    print(f"  💾 Guardado: {competitors_path}")
+
+    # Generar inventario/demanda
+    inventory = generate_inventory_demand(catalog)
+    inventory_path = output_dir / "inventory_demand.csv"
+    inventory.to_csv(inventory_path, index=False)
+    print(f"  💾 Guardado: {inventory_path}")
+
+    # Resumen estadístico
+    print("\n" + "="*50)
+    print("📈 RESUMEN DE DATOS GENERADOS")
+    print("="*50)
+    print(f"Catálogo: {len(catalog)} productos")
+    print(f"  - Categorías: {catalog['category'].value_counts().to_dict()}")
+    print(f"  - Precio promedio: ${catalog['current_price'].mean():.2f}")
+    print(f"  - Margen promedio: {((catalog['current_price'] - catalog['cost_price']) / catalog['current_price']).mean():.1%}")
+    print(f"\nCompetencia: {len(competitors)} registros")
+    print(f"  - Competidores únicos: {competitors['competitor_id'].nunique()}")
+    print(f"  - Productos con competencia: {competitors['product_id_own'].nunique()}")
+    print(f"\nInventario/Demanda: {len(inventory)} registros")
+    print(f"  - Productos con stock bajo (<20): {(inventory['stock'] < 20).sum()}")
+    print(f"  - Productos sin stock: {(inventory['stock'] == 0).sum()}")
+    print("\n✅ Generación completada exitosamente\n")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+**Instrucción para Claude Code:**
+Después de crear el archivo, ejecutarlo para verificar que funciona:
+```bash
+cd dynamic-pricing-de
+pip install pandas numpy faker
+python scripts/generate_datasets.py --n-products 1000 --seed 42
+ls -la data/raw/
+```
+
+**Checkpoint 1.1:** ✅ Existen los archivos `data/raw/catalog.csv`, `data/raw/competitors.csv`, `data/raw/inventory_demand.csv` con al menos 900 filas cada uno.
+
+---
+
+## PASO 1.2 — Crear módulos de ingesta en `src/ingestion/`
+
+**Instrucción para Claude Code:**
+Crear `src/ingestion/db_utils.py` con utilidades compartidas de base de datos:
+
+```python
+"""db_utils.py — Utilidades de conexión a base de datos."""
+import os
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def get_engine() -> Engine:
+    """Crea y retorna engine de SQLAlchemy para PostgreSQL."""
+    url = (
+        f"postgresql+psycopg2://{os.getenv('POSTGRES_USER')}:"
+        f"{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST', 'localhost')}:"
+        f"{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB')}"
+    )
+    return create_engine(url, pool_pre_ping=True)
+
+
+def create_schema_if_not_exists(engine: Engine, schema: str) -> None:
+    """Crea el schema si no existe."""
+    with engine.connect() as conn:
+        conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema}"))
+        conn.commit()
+```
+
+**Instrucción para Claude Code:**
+Crear `src/ingestion/ingest_catalog.py`:
+
+```python
+"""
+ingest_catalog.py
+=================
+Ingesta el catálogo de productos propios desde CSV a PostgreSQL (capa Bronze).
+"""
+from pathlib import Path
+import pandas as pd
+from loguru import logger
+from .db_utils import get_engine, create_schema_if_not_exists
+
+
+def ingest_catalog(csv_path: str = "data/raw/catalog.csv") -> int:
+    """
+    Carga el catálogo completo en la tabla bronze.raw_products.
+
+    Returns:
+        Número de filas insertadas.
+    """
+    logger.info(f"Iniciando ingesta de catálogo desde: {csv_path}")
+
+    # Validar que el archivo existe
+    if not Path(csv_path).exists():
+        raise FileNotFoundError(f"Archivo no encontrado: {csv_path}")
+
+    # Cargar datos
+    df = pd.read_csv(csv_path)
+    logger.info(f"  Filas leídas: {len(df)}")
+
+    # Agregar metadata de ingesta
+    df["ingested_at"] = pd.Timestamp.now()
+    df["source_file"] = csv_path
+
+    # Guardar en PostgreSQL
+    engine = get_engine()
+    create_schema_if_not_exists(engine, "bronze")
+
+    rows = df.to_sql(
+        name="raw_products",
+        con=engine,
+        schema="bronze",
+        if_exists="replace",
+        index=False,
+        method="multi",
+        chunksize=500,
+    )
+    logger.success(f"  ✅ Insertadas {rows} filas en bronze.raw_products")
+    return rows or 0
+
+
+if __name__ == "__main__":
+    ingest_catalog()
+```
+
+**Instrucción para Claude Code:**
+Crear `src/ingestion/ingest_competitors.py`:
+
+```python
+"""
+ingest_competitors.py
+=====================
+Ingesta datos de competencia desde CSV a PostgreSQL (capa Bronze).
+"""
+from pathlib import Path
+import pandas as pd
+from loguru import logger
+from .db_utils import get_engine, create_schema_if_not_exists
+
+
+def ingest_competitors(csv_path: str = "data/raw/competitors.csv") -> int:
+    """Carga datos de competencia en bronze.raw_competitors."""
+    logger.info(f"Iniciando ingesta de competencia desde: {csv_path}")
+
+    if not Path(csv_path).exists():
+        raise FileNotFoundError(f"Archivo no encontrado: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+    df["ingested_at"] = pd.Timestamp.now()
+    df["source_file"] = csv_path
+
+    engine = get_engine()
+    create_schema_if_not_exists(engine, "bronze")
+
+    rows = df.to_sql(
+        name="raw_competitors",
+        con=engine,
+        schema="bronze",
+        if_exists="replace",
+        index=False,
+        method="multi",
+        chunksize=500,
+    )
+    logger.success(f"  ✅ Insertadas {rows} filas en bronze.raw_competitors")
+    return rows or 0
+
+
+if __name__ == "__main__":
+    ingest_competitors()
+```
+
+**Instrucción para Claude Code:**
+Crear `src/ingestion/ingest_inventory.py`:
+
+```python
+"""
+ingest_inventory.py
+===================
+Ingesta datos de inventario y demanda a PostgreSQL (capa Bronze).
+"""
+from pathlib import Path
+import pandas as pd
+from loguru import logger
+from .db_utils import get_engine, create_schema_if_not_exists
+
+
+def ingest_inventory(csv_path: str = "data/raw/inventory_demand.csv") -> int:
+    """Carga datos de inventario/demanda en bronze.raw_inventory."""
+    logger.info(f"Iniciando ingesta de inventario desde: {csv_path}")
+
+    if not Path(csv_path).exists():
+        raise FileNotFoundError(f"Archivo no encontrado: {csv_path}")
+
+    df = pd.read_csv(csv_path)
+    df["ingested_at"] = pd.Timestamp.now()
+    df["source_file"] = csv_path
+
+    engine = get_engine()
+    create_schema_if_not_exists(engine, "bronze")
+
+    rows = df.to_sql(
+        name="raw_inventory",
+        con=engine,
+        schema="bronze",
+        if_exists="replace",
+        index=False,
+        method="multi",
+        chunksize=500,
+    )
+    logger.success(f"  ✅ Insertadas {rows} filas en bronze.raw_inventory")
+    return rows or 0
+
+
+if __name__ == "__main__":
+    ingest_inventory()
+```
+
+---
+
+## PASO 1.3 — Crear DAG de ingesta en Airflow
+
+**Instrucción para Claude Code:**
+Crear `airflow/dags/dag_ingest_daily.py`:
+
+```python
+"""
+dag_ingest_daily.py
+===================
+DAG de Airflow para ingesta diaria de datos crudos a la capa Bronze.
+Tareas:
+    1. generate_data    → Ejecuta generate_datasets.py
+    2. ingest_catalog   → Carga catalog.csv → bronze.raw_products
+    3. ingest_competitors → Carga competitors.csv → bronze.raw_competitors
+    4. ingest_inventory → Carga inventory_demand.csv → bronze.raw_inventory
+"""
+import subprocess
+from datetime import datetime, timedelta
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.utils.dates import days_ago
+
+# Importar módulos de ingesta
+import sys
+sys.path.insert(0, '/opt/airflow/src')
+
+from ingestion.ingest_catalog import ingest_catalog
+from ingestion.ingest_competitors import ingest_competitors
+from ingestion.ingest_inventory import ingest_inventory
+
+
+def run_generate_datasets():
+    """Regenera los datasets sintéticos (simula extracción de sistemas fuente)."""
+    result = subprocess.run(
+        ["python", "/opt/airflow/scripts/generate_datasets.py",
+         "--output-dir", "/opt/airflow/data/raw", "--seed", "42"],
+        capture_output=True, text=True, check=True
+    )
+    print(result.stdout)
+
+
+DEFAULT_ARGS = {
+    "owner": "data-engineering",
+    "depends_on_past": False,
+    "start_date": days_ago(1),
+    "retries": 2,
+    "retry_delay": timedelta(minutes=5),
+    "email_on_failure": False,
+}
+
+with DAG(
+    dag_id="ingest_daily",
+    default_args=DEFAULT_ARGS,
+    description="Ingesta diaria de datos crudos a capa Bronze",
+    schedule_interval="@daily",
+    catchup=False,
+    tags=["ingestion", "bronze", "etl"],
+) as dag:
+
+    t_generate = PythonOperator(
+        task_id="generate_datasets",
+        python_callable=run_generate_datasets,
+    )
+
+    t_catalog = PythonOperator(
+        task_id="ingest_catalog",
+        python_callable=ingest_catalog,
+        op_kwargs={"csv_path": "/opt/airflow/data/raw/catalog.csv"},
+    )
+
+    t_competitors = PythonOperator(
+        task_id="ingest_competitors",
+        python_callable=ingest_competitors,
+        op_kwargs={"csv_path": "/opt/airflow/data/raw/competitors.csv"},
+    )
+
+    t_inventory = PythonOperator(
+        task_id="ingest_inventory",
+        python_callable=ingest_inventory,
+        op_kwargs={"csv_path": "/opt/airflow/data/raw/inventory_demand.csv"},
+    )
+
+    # Dependencias: generar datos primero, luego ingestar en paralelo
+    t_generate >> [t_catalog, t_competitors, t_inventory]
+```
+
+**Checkpoint 1.3:** ✅ El DAG aparece en Airflow UI en `http://localhost:8080` sin errores de importación.
+
+---
+
+## CHECKPOINT FASE 1 — Validación
+
+```bash
+# Ejecutar generación de datos
+python scripts/generate_datasets.py
+
+# Verificar archivos generados
+wc -l data/raw/*.csv
+
+# Ejecutar ingesta manual para verificar
+cd dynamic-pricing-de
+python -m src.ingestion.ingest_catalog
+python -m src.ingestion.ingest_competitors
+python -m src.ingestion.ingest_inventory
+
+# Verificar datos en PostgreSQL
+docker exec pricing_postgres psql -U pricing_user -d dynamic_pricing -c \
+  "SELECT schemaname, tablename, n_live_tup FROM pg_stat_user_tables ORDER BY schemaname;"
+```
+
+**FASE 1 COMPLETA cuando:** Las 3 tablas bronze existen en PostgreSQL con > 900 filas.
+
+---
+---
+
+# FASE 2: CALIDAD DE DATOS Y TRANSFORMACIÓN dbt
+## Días 6-8 | Objetivo: Datos limpios y validados en Silver/Gold
+
+---
+
+## PASO 2.1 — Configurar proyecto dbt
+
+**Instrucción para Claude Code:**
+Crear `dbt/dbt_project.yml`:
+
+```yaml
+name: 'dynamic_pricing'
+version: '1.0.0'
+config-version: 2
+
+profile: 'dynamic_pricing'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  dynamic_pricing:
+    bronze:
+      +materialized: view
+      +schema: bronze
+    silver:
+      +materialized: table
+      +schema: silver
+    gold:
+      +materialized: table
+      +schema: gold
+```
+
+**Instrucción para Claude Code:**
+Crear `dbt/profiles.yml`:
+
+```yaml
+dynamic_pricing:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: "{{ env_var('POSTGRES_USER') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: "{{ env_var('POSTGRES_DB') }}"
+      schema: bronze
+      threads: 4
+      keepalives_idle: 0
+```
+
+---
+
+## PASO 2.2 — Modelos dbt Bronze (vistas sobre tablas raw)
+
+**Instrucción para Claude Code:**
+Crear `dbt/models/bronze/schema.yml`:
+
+```yaml
+version: 2
+
+sources:
+  - name: bronze
+    schema: bronze
+    tables:
+      - name: raw_products
+        description: "Catálogo de productos propios - datos crudos"
+        columns:
+          - name: product_id
+            tests: [not_null, unique]
+          - name: current_price
+            tests: [not_null]
+          - name: cost_price
+            tests: [not_null]
+
+      - name: raw_competitors
+        description: "Precios de competencia - datos crudos"
+        columns:
+          - name: product_id_own
+            tests: [not_null]
+          - name: competitor_price
+            tests: [not_null]
+
+      - name: raw_inventory
+        description: "Inventario y métricas de demanda - datos crudos"
+        columns:
+          - name: product_id
+            tests: [not_null, unique]
+          - name: stock
+            tests: [not_null]
+```
+
+**Instrucción para Claude Code:**
+Crear `dbt/models/bronze/raw_products.sql`:
+```sql
+-- Modelo Bronze: vista directa sobre tabla raw sin transformaciones
+{{ config(materialized='view', schema='bronze') }}
+SELECT * FROM {{ source('bronze', 'raw_products') }}
+```
+
+Crear `dbt/models/bronze/raw_competitors.sql`:
+```sql
+{{ config(materialized='view', schema='bronze') }}
+SELECT * FROM {{ source('bronze', 'raw_competitors') }}
+```
+
+Crear `dbt/models/bronze/raw_inventory.sql`:
+```sql
+{{ config(materialized='view', schema='bronze') }}
+SELECT * FROM {{ source('bronze', 'raw_inventory') }}
+```
+
+---
+
+## PASO 2.3 — Modelos dbt Silver (limpieza y normalización)
+
+**Instrucción para Claude Code:**
+Crear `dbt/models/silver/stg_products.sql`:
+
+```sql
+-- Modelo Silver: Limpieza y normalización del catálogo de productos
+{{ config(materialized='table', schema='silver') }}
+
+WITH source AS (
+    SELECT * FROM {{ ref('raw_products') }}
+),
+
+cleaned AS (
+    SELECT
+        product_id,
+
+        -- Normalizar nombre: minúsculas, sin caracteres especiales
+        LOWER(TRIM(REGEXP_REPLACE(name, '[^a-zA-Z0-9 \-]', '', 'g'))) AS name_normalized,
+        name AS name_original,
+
+        -- Normalizar categoría
+        INITCAP(TRIM(category)) AS category,
+
+        -- Precios con validación básica
+        CASE WHEN cost_price > 0 THEN cost_price ELSE NULL END AS cost_price,
+        CASE WHEN current_price > 0 THEN current_price ELSE NULL END AS current_price,
+        CASE WHEN base_price > 0 THEN base_price ELSE NULL END AS base_price,
+
+        -- Métricas calculadas
+        CASE
+            WHEN cost_price > 0 AND current_price > 0
+            THEN ROUND((current_price - cost_price) / current_price, 4)
+            ELSE NULL
+        END AS margin_current,
+
+        -- Stock y demanda
+        GREATEST(0, COALESCE(stock, 0)) AS stock,
+        COALESCE(sales_7d, 0) AS sales_7d,
+        COALESCE(sales_30d, 0) AS sales_30d,
+        COALESCE(visits_7d, 0) AS visits_7d,
+        COALESCE(velocity_score, 0.0) AS velocity_score,
+
+        -- Clasificación de stock
+        CASE
+            WHEN COALESCE(stock, 0) = 0 THEN 'out_of_stock'
+            WHEN COALESCE(stock, 0) < 20 THEN 'critical_low'
+            WHEN COALESCE(stock, 0) < 100 THEN 'normal'
+            WHEN COALESCE(stock, 0) >= 400 THEN 'overstock'
+            ELSE 'normal'
+        END AS stock_status,
+
+        ingested_at,
+        CURRENT_TIMESTAMP AS processed_at
+
+    FROM source
+    WHERE
+        product_id IS NOT NULL
+        AND current_price > 0
+        AND cost_price > 0
+        AND cost_price < current_price  -- Precio de venta debe superar el costo
+)
+
+SELECT * FROM cleaned
+```
+
+**Instrucción para Claude Code:**
+Crear `dbt/models/silver/stg_competitor_prices.sql`:
+
+```sql
+-- Modelo Silver: Limpieza de precios de competencia
+{{ config(materialized='table', schema='silver') }}
+
+WITH source AS (
+    SELECT * FROM {{ ref('raw_competitors') }}
+),
+
+cleaned AS (
+    SELECT
+        competitor_id,
+        product_id_own,
+        LOWER(TRIM(product_name_competitor)) AS product_name_competitor,
+        INITCAP(TRIM(category)) AS category,
+        CASE WHEN competitor_price > 0 THEN competitor_price ELSE NULL END AS competitor_price,
+        timestamp::TIMESTAMP AS price_timestamp,
+        is_confirmed_match,
+        ingested_at,
+        CURRENT_TIMESTAMP AS processed_at
+    FROM source
+    WHERE
+        product_id_own IS NOT NULL
+        AND competitor_price > 0
+        AND competitor_id IS NOT NULL
+)
+
+SELECT * FROM cleaned
+```
+
+**Instrucción para Claude Code:**
+Crear `dbt/models/silver/stg_inventory.sql`:
+
+```sql
+-- Modelo Silver: Limpieza de inventario (alternativa si viene de sistema separado)
+{{ config(materialized='table', schema='silver') }}
+
+SELECT
+    product_id,
+    GREATEST(0, COALESCE(stock, 0)) AS stock,
+    COALESCE(sales_7d, 0) AS sales_7d,
+    COALESCE(sales_30d, 0) AS sales_30d,
+    COALESCE(visits_7d, 0) AS visits_7d,
+    COALESCE(velocity_score, 0.0) AS velocity_score,
+    updated_at::TIMESTAMP AS updated_at,
+    CURRENT_TIMESTAMP AS processed_at
+FROM {{ ref('raw_inventory') }}
+WHERE product_id IS NOT NULL
+```
+
+---
+
+## PASO 2.4 — Modelo Gold: `fct_pricing_signals`
+
+**Instrucción para Claude Code:**
+Crear `dbt/models/gold/fct_pricing_signals.sql`:
+
+```sql
+-- Modelo Gold: Tabla analítica principal con todas las señales para el motor de pricing
+{{ config(materialized='table', schema='gold') }}
+
+WITH products AS (
+    SELECT * FROM {{ ref('stg_products') }}
+),
+
+competitors AS (
+    SELECT
+        product_id_own,
+        AVG(competitor_price) AS avg_comp_price,
+        MIN(competitor_price) AS min_comp_price,
+        MAX(competitor_price) AS max_comp_price,
+        COUNT(DISTINCT competitor_id) AS n_competitors,
+        MIN(price_timestamp) AS oldest_comp_price,
+        MAX(price_timestamp) AS newest_comp_price
+    FROM {{ ref('stg_competitor_prices') }}
+    GROUP BY product_id_own
+),
+
+final AS (
+    SELECT
+        p.product_id,
+        p.name_original,
+        p.name_normalized,
+        p.category,
+        p.cost_price,
+        p.current_price,
+        p.margin_current,
+        p.stock,
+        p.stock_status,
+        p.sales_7d,
+        p.sales_30d,
+        p.visits_7d,
+        p.velocity_score,
+
+        -- Datos de competencia (NULL si no hay match)
+        c.avg_comp_price,
+        c.min_comp_price,
+        c.max_comp_price,
+        c.n_competitors,
+        c.newest_comp_price,
+
+        -- Posición de precio vs competencia
+        CASE
+            WHEN c.avg_comp_price IS NULL THEN 'no_competition_data'
+            WHEN p.current_price < c.min_comp_price * 0.95 THEN 'much_cheaper'
+            WHEN p.current_price < c.avg_comp_price THEN 'cheaper'
+            WHEN p.current_price BETWEEN c.avg_comp_price * 0.98
+                 AND c.avg_comp_price * 1.02 THEN 'at_market'
+            WHEN p.current_price > c.max_comp_price * 1.05 THEN 'much_more_expensive'
+            ELSE 'more_expensive'
+        END AS price_position,
+
+        -- Diferencial de precio vs competencia (%)
+        CASE
+            WHEN c.avg_comp_price IS NOT NULL AND c.avg_comp_price > 0
+            THEN ROUND((p.current_price - c.avg_comp_price) / c.avg_comp_price, 4)
+            ELSE NULL
+        END AS price_diff_pct_vs_avg,
+
+        CURRENT_TIMESTAMP AS computed_at
+
+    FROM products p
+    LEFT JOIN competitors c ON p.product_id = c.product_id_own
+)
+
+SELECT * FROM final
+```
+
+---
+
+## PASO 2.5 — Validaciones dbt (tests)
+
+**Instrucción para Claude Code:**
+Crear `dbt/models/silver/schema.yml`:
+
+```yaml
+version: 2
+
+models:
+  - name: stg_products
+    description: "Catálogo de productos limpio y normalizado"
+    columns:
+      - name: product_id
+        tests: [not_null, unique]
+      - name: cost_price
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "cost_price > 0"
+      - name: current_price
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "current_price > 0"
+      - name: margin_current
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "margin_current > 0 OR margin_current IS NULL"
+      - name: stock
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "stock >= 0"
+      - name: stock_status
+        tests:
+          - accepted_values:
+              values: ['out_of_stock', 'critical_low', 'normal', 'overstock']
+
+  - name: stg_competitor_prices
+    description: "Precios de competencia limpios"
+    columns:
+      - name: product_id_own
+        tests: [not_null]
+      - name: competitor_price
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "competitor_price > 0"
+```
+
+---
+
+## PASO 2.6 — DAG de Airflow para dbt
+
+**Instrucción para Claude Code:**
+Crear `airflow/dags/dag_run_dbt.py`:
+
+```python
+"""
+dag_run_dbt.py
+==============
+DAG de Airflow para ejecutar modelos dbt en secuencia Bronze → Silver → Gold.
+"""
+import subprocess
+from datetime import timedelta
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.utils.dates import days_ago
+
+
+def run_dbt_command(command: list[str]) -> None:
+    """Ejecuta un comando dbt y captura la salida."""
+    full_command = ["dbt"] + command + ["--project-dir", "/opt/airflow/dbt",
+                                         "--profiles-dir", "/opt/airflow/dbt"]
+    result = subprocess.run(
+        full_command, capture_output=True, text=True, check=True
+    )
+    print(result.stdout)
+    if result.returncode != 0:
+        raise RuntimeError(f"dbt falló:\n{result.stderr}")
+
+
+def run_dbt_bronze():
+    run_dbt_command(["run", "--select", "bronze"])
+
+
+def run_dbt_silver():
+    run_dbt_command(["run", "--select", "silver"])
+
+
+def run_dbt_gold():
+    run_dbt_command(["run", "--select", "gold"])
+
+
+def run_dbt_tests():
+    run_dbt_command(["test", "--select", "silver"])
+
+
+DEFAULT_ARGS = {
+    "owner": "data-engineering",
+    "retries": 1,
+    "retry_delay": timedelta(minutes=3),
+    "start_date": days_ago(1),
+}
+
+with DAG(
+    dag_id="run_dbt_models",
+    default_args=DEFAULT_ARGS,
+    description="Ejecutar modelos dbt: Bronze → Silver → Gold",
+    schedule_interval=None,  # Triggered por pipeline maestro
+    catchup=False,
+    tags=["dbt", "transformation"],
+) as dag:
+
+    t_bronze = PythonOperator(task_id="dbt_bronze", python_callable=run_dbt_bronze)
+    t_silver = PythonOperator(task_id="dbt_silver", python_callable=run_dbt_silver)
+    t_test = PythonOperator(task_id="dbt_tests", python_callable=run_dbt_tests)
+    t_gold = PythonOperator(task_id="dbt_gold", python_callable=run_dbt_gold)
+
+    t_bronze >> t_silver >> t_test >> t_gold
+```
+
+**Checkpoint Fase 2:** ✅ `dbt run` y `dbt test` ejecutan sin errores. Las tablas `silver.stg_products`, `silver.stg_competitor_prices` y `gold.fct_pricing_signals` existen en PostgreSQL.
+
+---
+---
+
+# FASE 3: MATCHING INTELIGENTE CON EMBEDDINGS
+## Días 9-11 | Objetivo: Emparejar productos propios con competencia usando NLP
+
+---
+
+## PASO 3.1 — Módulo de embeddings: `src/matching/embeddings.py`
+
+**Instrucción para Claude Code:**
+Crear `src/matching/embeddings.py`:
+
+```python
+"""
+embeddings.py
+=============
+Genera y gestiona embeddings semánticos de productos usando sentence-transformers.
+Modelo: all-MiniLM-L6-v2 (384 dimensiones, ~22MB, no requiere GPU)
+"""
+import os
+from typing import Optional
+import numpy as np
+import pandas as pd
+from loguru import logger
+from sentence_transformers import SentenceTransformer
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance, VectorParams, PointStruct, Filter,
+    FieldCondition, MatchValue
+)
+
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+COLLECTION_NAME = os.getenv("QDRANT_COLLECTION", "product_embeddings")
+VECTOR_SIZE = 384  # Dimensión fija de all-MiniLM-L6-v2
+
+
+def get_qdrant_client() -> QdrantClient:
+    """Retorna cliente de Qdrant."""
+    return QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+
+
+def get_embedding_model() -> SentenceTransformer:
+    """Carga el modelo de embeddings (se cachea en memoria)."""
+    logger.info(f"Cargando modelo: {EMBEDDING_MODEL}")
+    return SentenceTransformer(EMBEDDING_MODEL)
+
+
+def create_collection_if_not_exists(client: QdrantClient) -> None:
+    """Crea la colección en Qdrant si no existe."""
+    collections = [c.name for c in client.get_collections().collections]
+    if COLLECTION_NAME not in collections:
+        client.create_collection(
+            collection_name=COLLECTION_NAME,
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+        )
+        logger.info(f"Colección creada: {COLLECTION_NAME}")
+    else:
+        logger.info(f"Colección existente: {COLLECTION_NAME}")
+
+
+def build_product_text(name: str, category: str) -> str:
+    """
+    Construye el texto de entrada para el modelo.
+    Combina nombre y categoría para mejorar la precisión del embedding.
+    """
+    return f"{category}: {name}".lower().strip()
+
+
+def generate_and_index_embeddings(
+    df: pd.DataFrame,
+    source: str,  # 'own' o 'competitor'
+    name_col: str,
+    product_id_col: str,
+    price_col: Optional[str] = None,
+    category_col: str = "category",
+    batch_size: int = 64,
+) -> int:
+    """
+    Genera embeddings para un DataFrame de productos y los indexa en Qdrant.
+
+    Args:
+        df: DataFrame con productos
+        source: 'own' o 'competitor'
+        name_col: columna con el nombre del producto
+        product_id_col: columna con el ID del producto
+        price_col: columna con el precio (opcional)
+        category_col: columna con la categoría
+        batch_size: tamaño de batch para inferencia
+
+    Returns:
+        Número de vectores indexados
+    """
+    logger.info(f"Generando embeddings para {len(df)} productos (source={source})")
+
+    model = get_embedding_model()
+    client = get_qdrant_client()
+    create_collection_if_not_exists(client)
+
+    texts = [
+        build_product_text(row[name_col], row[category_col])
+        for _, row in df.iterrows()
+    ]
+
+    # Generar embeddings en batches
+    all_embeddings = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        embeddings = model.encode(batch, show_progress_bar=False)
+        all_embeddings.extend(embeddings.tolist())
+        logger.debug(f"  Batch {i//batch_size + 1}: {len(batch)} embeddings generados")
+
+    # Preparar puntos para Qdrant
+    # Usar hash del product_id como ID numérico (Qdrant requiere int o UUID)
+    points = []
+    for idx, (_, row) in enumerate(df.iterrows()):
+        payload = {
+            "product_id": str(row[product_id_col]),
+            "source": source,
+            "category": str(row.get(category_col, "")),
+            "name": str(row[name_col]),
+        }
+        if price_col and price_col in row:
+            payload["price"] = float(row[price_col]) if pd.notna(row[price_col]) else None
+
+        points.append(PointStruct(
+            id=abs(hash(f"{source}_{row[product_id_col]}_{idx}")) % (2**63),
+            vector=all_embeddings[idx],
+            payload=payload,
+        ))
+
+    # Indexar en Qdrant en batches
+    for i in range(0, len(points), batch_size):
+        batch = points[i:i + batch_size]
+        client.upsert(collection_name=COLLECTION_NAME, points=batch)
+
+    logger.success(f"  ✅ {len(points)} vectores indexados en Qdrant ({source})")
+    return len(points)
+```
+
+---
+
+## PASO 3.2 — Módulo de matching: `src/matching/matcher.py`
+
+**Instrucción para Claude Code:**
+Crear `src/matching/matcher.py`:
+
+```python
+"""
+matcher.py
+==========
+Algoritmo de matching automático entre productos propios y de competencia.
+Usa búsqueda por similitud coseno en Qdrant con filtrado por categoría.
+
+Umbrales:
+    >= 0.85  → match aceptado automáticamente
+    >= 0.70  → match pendiente de revisión manual
+    < 0.70   → descartado
+"""
+import os
+from dataclasses import dataclass
+from typing import Optional
+import pandas as pd
+from loguru import logger
+from qdrant_client import QdrantClient
+from qdrant_client.models import Filter, FieldCondition, MatchValue
+from sentence_transformers import SentenceTransformer
+
+from .embeddings import (
+    get_qdrant_client, get_embedding_model,
+    build_product_text, COLLECTION_NAME,
+)
+from ..ingestion.db_utils import get_engine
+
+SIMILARITY_THRESHOLD_ACCEPT = float(os.getenv("SIMILARITY_THRESHOLD", "0.85"))
+SIMILARITY_THRESHOLD_REVIEW = float(os.getenv("SIMILARITY_REVIEW_THRESHOLD", "0.70"))
+TOP_K = 3
+
+
+@dataclass
+class MatchResult:
+    own_product_id: str
+    own_product_name: str
+    competitor_product_id: str
+    competitor_name: str
+    competitor_id: str
+    similarity_score: float
+    status: str  # 'accepted', 'review', 'rejected'
+    category: str
+
+
+def find_matches_for_product(
+    product_id: str,
+    product_name: str,
+    category: str,
+    model: SentenceTransformer,
+    client: QdrantClient,
+) -> list[MatchResult]:
+    """Encuentra los mejores matches en competencia para un producto propio."""
+
+    text = build_product_text(product_name, category)
+    embedding = model.encode([text])[0].tolist()
+
+    # Buscar en Qdrant filtrando por source=competitor y misma categoría
+    results = client.search(
+        collection_name=COLLECTION_NAME,
+        query_vector=embedding,
+        query_filter=Filter(
+            must=[
+                FieldCondition(key="source", match=MatchValue(value="competitor")),
+                FieldCondition(key="category", match=MatchValue(value=category.title())),
+            ]
+        ),
+        limit=TOP_K,
+        with_payload=True,
+    )
+
+    matches = []
+    for hit in results:
+        score = hit.score
+        if score < SIMILARITY_THRESHOLD_REVIEW:
+            continue
+
+        status = "accepted" if score >= SIMILARITY_THRESHOLD_ACCEPT else "review"
+
+        matches.append(MatchResult(
+            own_product_id=product_id,
+            own_product_name=product_name,
+            competitor_product_id=hit.payload.get("product_id", ""),
+            competitor_name=hit.payload.get("name", ""),
+            competitor_id=hit.payload.get("competitor_id", "unknown"),
+            similarity_score=round(score, 4),
+            status=status,
+            category=category,
+        ))
+
+    return matches
+
+
+def run_matching_pipeline() -> pd.DataFrame:
+    """
+    Ejecuta el pipeline completo de matching para todos los productos propios.
+
+    Returns:
+        DataFrame con todos los matches (aceptados + en revisión)
+    """
+    logger.info("Iniciando pipeline de matching de productos...")
+
+    engine = get_engine()
+    model = get_embedding_model()
+    client = get_qdrant_client()
+
+    # Cargar productos propios desde Silver
+    products_df = pd.read_sql(
+        "SELECT product_id, name_original AS name, category FROM silver.stg_products",
+        engine
+    )
+    logger.info(f"  Productos a procesar: {len(products_df)}")
+
+    all_matches = []
+    accepted_count = 0
+    review_count = 0
+
+    for _, product in products_df.iterrows():
+        matches = find_matches_for_product(
+            product_id=product["product_id"],
+            product_name=product["name"],
+            category=product["category"],
+            model=model,
+            client=client,
+        )
+        all_matches.extend(matches)
+        accepted_count += sum(1 for m in matches if m.status == "accepted")
+        review_count += sum(1 for m in matches if m.status == "review")
+
+    # Convertir a DataFrame
+    if not all_matches:
+        logger.warning("No se encontraron matches")
+        return pd.DataFrame()
+
+    results_df = pd.DataFrame([
+        {
+            "own_product_id": m.own_product_id,
+            "own_product_name": m.own_product_name,
+            "competitor_product_id": m.competitor_product_id,
+            "competitor_name": m.competitor_name,
+            "competitor_id": m.competitor_id,
+            "similarity_score": m.similarity_score,
+            "status": m.status,
+            "category": m.category,
+        }
+        for m in all_matches
+    ])
+
+    # Guardar en PostgreSQL (silver layer)
+    results_df.to_sql(
+        "product_matches",
+        engine,
+        schema="silver",
+        if_exists="replace",
+        index=False,
+    )
+
+    logger.success(
+        f"  ✅ Matching completado: {accepted_count} aceptados, "
+        f"{review_count} en revisión"
+    )
+    return results_df
+```
+
+---
+
+## PASO 3.3 — DAG de Matching en Airflow
+
+**Instrucción para Claude Code:**
+Crear `airflow/dags/dag_matching.py`:
+
+```python
+"""
+dag_matching.py
+===============
+DAG para generar embeddings e indexar en Qdrant, luego ejecutar matching.
+"""
+from datetime import timedelta
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.utils.dates import days_ago
+
+import sys
+sys.path.insert(0, '/opt/airflow/src')
+
+
+def task_generate_own_embeddings():
+    """Genera e indexa embeddings de productos propios."""
+    import pandas as pd
+    from ingestion.db_utils import get_engine
+    from matching.embeddings import generate_and_index_embeddings
+
+    engine = get_engine()
+    df = pd.read_sql(
+        "SELECT product_id, name_original AS name, category FROM silver.stg_products",
+        engine
+    )
+    return generate_and_index_embeddings(
+        df, source="own", name_col="name",
+        product_id_col="product_id", category_col="category"
+    )
+
+
+def task_generate_competitor_embeddings():
+    """Genera e indexa embeddings de productos de competencia."""
+    import pandas as pd
+    from ingestion.db_utils import get_engine
+    from matching.embeddings import generate_and_index_embeddings
+
+    engine = get_engine()
+    df = pd.read_sql(
+        """SELECT CONCAT(competitor_id, '_', ROW_NUMBER() OVER()) AS id,
+                  product_name_competitor AS name, category,
+                  competitor_price, competitor_id
+           FROM silver.stg_competitor_prices""",
+        engine
+    )
+    return generate_and_index_embeddings(
+        df, source="competitor", name_col="name",
+        product_id_col="id", price_col="competitor_price",
+        category_col="category"
+    )
+
+
+def task_run_matching():
+    """Ejecuta el algoritmo de matching."""
+    from matching.matcher import run_matching_pipeline
+    results = run_matching_pipeline()
+    print(f"Matches encontrados: {len(results)}")
+
+
+DEFAULT_ARGS = {
+    "owner": "ml-engineering",
+    "retries": 1,
+    "retry_delay": timedelta(minutes=5),
+    "start_date": days_ago(1),
+}
+
+with DAG(
+    dag_id="product_matching",
+    default_args=DEFAULT_ARGS,
+    description="Embeddings + Matching de productos propios vs competencia",
+    schedule_interval=None,  # Triggered por pipeline maestro
+    catchup=False,
+    tags=["matching", "nlp", "qdrant"],
+) as dag:
+
+    t_own_emb = PythonOperator(
+        task_id="generate_own_embeddings",
+        python_callable=task_generate_own_embeddings,
+    )
+
+    t_comp_emb = PythonOperator(
+        task_id="generate_competitor_embeddings",
+        python_callable=task_generate_competitor_embeddings,
+    )
+
+    t_match = PythonOperator(
+        task_id="run_matching",
+        python_callable=task_run_matching,
+    )
+
+    [t_own_emb, t_comp_emb] >> t_match
+```
+
+**Checkpoint Fase 3:** ✅ La tabla `silver.product_matches` existe con registros. Al menos 70% de productos tienen al menos 1 match con score >= 0.70.
+
+---
+---
+
+# FASE 4: MOTOR DE PRICING
+## Días 12-14 | Objetivo: Engine transparente, explicable y con tests
+
+---
+
+## PASO 4.1 — Configuración del engine: `src/pricing/config.py`
+
+**Instrucción para Claude Code:**
+Crear `src/pricing/config.py`:
+
+```python
+"""config.py — Parámetros configurables del motor de pricing."""
+import os
+import yaml
+from pathlib import Path
+from pydantic import BaseModel, Field
+
+
+class PricingConfig(BaseModel):
+    min_margin_pct: float = Field(default=0.10, ge=0.0, le=1.0)
+    undercut_buffer: float = Field(default=1.00, ge=0.0)
+    max_adjustment_demand: float = Field(default=0.10, ge=0.0, le=0.50)
+    min_adjustment_demand: float = Field(default=-0.05, ge=-0.50, le=0.0)
+    max_adjustment_stock_over: float = Field(default=-0.05, ge=-0.50, le=0.0)
+    max_adjustment_stock_under: float = Field(default=0.03, ge=0.0, le=0.50)
+    overstock_threshold: int = Field(default=400, ge=0)
+    understock_threshold: int = Field(default=20, ge=0)
+
+
+def load_config(config_path: str = None) -> PricingConfig:
+    """Carga configuración desde YAML o variables de entorno."""
+    if config_path is None:
+        config_path = os.getenv("PRICING_CONFIG_PATH", "config/pricing_config.yaml")
+
+    path = Path(config_path)
+    if path.exists():
+        with open(path) as f:
+            data = yaml.safe_load(f)
+            engine_config = data.get("pricing_engine", {})
+            return PricingConfig(**engine_config)
+
+    # Fallback a defaults
+    return PricingConfig()
+```
+
+---
+
+## PASO 4.2 — Motor de pricing: `src/pricing/engine.py`
+
+**Instrucción para Claude Code:**
+Crear `src/pricing/engine.py` con la lógica completa y explicable:
+
+```python
+"""
+engine.py
+=========
+Motor de pricing dinámico. Calcula el precio sugerido para cada producto
+basado en: costo, competencia, nivel de stock y velocidad de demanda.
+
+PRINCIPIO DE DISEÑO: Reglas explícitas > ML black-box
+Cada ajuste es trazable y comprensible para el equipo comercial.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Optional
+import pandas as pd
+from loguru import logger
+
+from .config import PricingConfig, load_config
+
+
+# ============================================================
+# DATA CLASSES (Input / Output tipados)
+# ============================================================
+
+@dataclass
+class ProductSignals:
+    """Señales de entrada para calcular el precio sugerido."""
+    product_id: str
+    name: str
+    category: str
+    cost_price: float
+    current_price: float
+    avg_comp_price: Optional[float] = None
+    min_comp_price: Optional[float] = None
+    stock: int = 0
+    stock_status: str = "normal"
+    velocity_score: float = 0.0
+    sales_7d: int = 0
+
+
+@dataclass
+class PricingRecommendation:
+    """Recomendación de precio con trazabilidad completa."""
+    product_id: str
+    current_price: float
+    suggested_price: float
+    min_allowed_price: float
+    competitive_price: Optional[float]
+    demand_adjustment: float
+    stock_adjustment: float
+    base_price_used: float
+    action: str  # 'decrease', 'increase', 'maintain'
+    reasoning: str
+    confidence: str  # 'high', 'medium', 'low'
+
+
+# ============================================================
+# FUNCIONES DE AJUSTE
+# ============================================================
+
+def map_velocity_to_demand_adjustment(
+    velocity_score: float, config: PricingConfig
+) -> float:
+    """
+    Mapea velocity_score (ratio ventas/visitas) a ajuste de precio.
+
+    Lógica:
+        - velocity > 0.15 (alta conversión) → subir precio hasta +10%
+        - velocity 0.05-0.15 (normal) → sin ajuste
+        - velocity < 0.05 (baja conversión) → bajar precio hasta -5%
+    """
+    if velocity_score >= 0.15:
+        # Alta demanda: escalar de 0 a max_adjustment_demand
+        normalized = min((velocity_score - 0.15) / 0.15, 1.0)
+        return round(normalized * config.max_adjustment_demand, 4)
+    elif velocity_score >= 0.05:
+        return 0.0
+    else:
+        # Baja demanda: escalar de 0 a min_adjustment_demand (negativo)
+        normalized = min((0.05 - velocity_score) / 0.05, 1.0)
+        return round(normalized * config.min_adjustment_demand, 4)
+
+
+def map_stock_to_adjustment(
+    stock: int, stock_status: str, config: PricingConfig
+) -> float:
+    """
+    Mapea nivel de stock a ajuste de precio.
+
+    Lógica:
+        - out_of_stock → no calcular precio (retorna 0, se maneja arriba)
+        - critical_low → +3% (escasez)
+        - normal → sin ajuste
+        - overstock → -5% (liquidar)
+    """
+    if stock_status == "overstock":
+        return config.max_adjustment_stock_over  # Negativo: bajar precio
+    elif stock_status == "critical_low":
+        return config.max_adjustment_stock_under  # Positivo: subir precio
+    else:
+        return 0.0
+
+
+def determine_base_price(
+    cost_price: float,
+    avg_comp_price: Optional[float],
+    min_comp_price: Optional[float],
+    config: PricingConfig,
+) -> tuple[float, Optional[float]]:
+    """
+    Determina el precio base antes de ajustes.
+
+    Estrategia:
+        1. Si hay competencia: igualar precio mínimo menos buffer
+        2. Si no hay competencia: usar costo + margen mínimo como base
+
+    Returns:
+        (precio_base, precio_competitivo_calculado)
+    """
+    min_price = round(cost_price * (1 + config.min_margin_pct), 2)
+
+    if min_comp_price is not None and min_comp_price > 0:
+        competitive_price = round(min_comp_price - config.undercut_buffer, 2)
+        base_price = max(min_price, competitive_price)
+        return base_price, competitive_price
+    else:
+        # Sin datos de competencia: usar precio mínimo + 5% buffer
+        return round(min_price * 1.05, 2), None
+
+
+# ============================================================
+# FUNCIÓN PRINCIPAL
+# ============================================================
+
+def calculate_price(
+    signals: ProductSignals,
+    config: Optional[PricingConfig] = None,
+) -> PricingRecommendation:
+    """
+    Calcula el precio sugerido para un producto.
+
+    Flujo:
+        1. Validar inputs
+        2. Calcular precio mínimo (floor de rentabilidad)
+        3. Determinar precio base competitivo
+        4. Aplicar ajuste de demanda
+        5. Aplicar ajuste de stock
+        6. Calcular precio final
+        7. Generar reasoning legible
+
+    Raises:
+        ValueError: Si cost_price es None o <= 0
+    """
+    if config is None:
+        config = load_config()
+
+    # --- Validaciones ---
+    if signals.cost_price is None or signals.cost_price <= 0:
+        raise ValueError(f"cost_price inválido para {signals.product_id}: {signals.cost_price}")
+
+    # --- Caso especial: sin stock ---
+    if signals.stock == 0 or signals.stock_status == "out_of_stock":
+        return PricingRecommendation(
+            product_id=signals.product_id,
+            current_price=signals.current_price,
+            suggested_price=signals.current_price,  # Mantener precio
+            min_allowed_price=round(signals.cost_price * (1 + config.min_margin_pct), 2),
+            competitive_price=None,
+            demand_adjustment=0.0,
+            stock_adjustment=0.0,
+            base_price_used=signals.current_price,
+            action="maintain",
+            reasoning="Producto sin stock. Precio mantenido sin cambios.",
+            confidence="low",
+        )
+
+    # --- Paso 1: Precio mínimo (floor) ---
+    min_allowed_price = round(signals.cost_price * (1 + config.min_margin_pct), 2)
+
+    # --- Paso 2: Precio base competitivo ---
+    base_price, competitive_price = determine_base_price(
+        signals.cost_price,
+        signals.avg_comp_price,
+        signals.min_comp_price,
+        config,
+    )
+
+    # --- Paso 3: Ajuste de demanda ---
+    demand_adj = map_velocity_to_demand_adjustment(signals.velocity_score, config)
+
+    # --- Paso 4: Ajuste de stock ---
+    stock_adj = map_stock_to_adjustment(signals.stock, signals.stock_status, config)
+
+    # --- Paso 5: Precio final ---
+    raw_final = base_price * (1 + demand_adj + stock_adj)
+    final_price = round(max(raw_final, min_allowed_price), 2)
+
+    # --- Paso 6: Determinar acción ---
+    price_delta = final_price - signals.current_price
+    if price_delta < -0.50:
+        action = "decrease"
+    elif price_delta > 0.50:
+        action = "increase"
+    else:
+        action = "maintain"
+
+    # --- Paso 7: Confianza (basada en disponibilidad de datos) ---
+    if signals.avg_comp_price is not None and signals.velocity_score > 0:
+        confidence = "high"
+    elif signals.avg_comp_price is not None or signals.velocity_score > 0:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    # --- Paso 8: Reasoning legible ---
+    reasoning_parts = [
+        f"Costo: ${signals.cost_price:.2f}",
+        f"Margen mínimo requerido: {config.min_margin_pct:.0%} → floor ${min_allowed_price:.2f}",
+        f"Base competitiva: ${base_price:.2f}" + (
+            f" (competidor mín: ${signals.min_comp_price:.2f})"
+            if signals.min_comp_price else " (sin datos de competencia)"
+        ),
+        f"Ajuste demanda (velocity={signals.velocity_score:.3f}): {demand_adj:+.1%}",
+        f"Ajuste stock ({signals.stock_status}): {stock_adj:+.1%}",
+        f"Precio sugerido: ${final_price:.2f} vs actual ${signals.current_price:.2f} ({price_delta:+.2f})",
+    ]
+    reasoning = " | ".join(reasoning_parts)
+
+    return PricingRecommendation(
+        product_id=signals.product_id,
+        current_price=signals.current_price,
+        suggested_price=final_price,
+        min_allowed_price=min_allowed_price,
+        competitive_price=competitive_price,
+        demand_adjustment=demand_adj,
+        stock_adjustment=stock_adj,
+        base_price_used=base_price,
+        action=action,
+        reasoning=reasoning,
+        confidence=confidence,
+    )
+
+
+# ============================================================
+# PIPELINE COMPLETO
+# ============================================================
+
+def run_pricing_pipeline(config: Optional[PricingConfig] = None) -> pd.DataFrame:
+    """
+    Ejecuta el motor de pricing para todos los productos en gold.fct_pricing_signals.
+
+    Returns:
+        DataFrame con todas las recomendaciones de precio
+    """
+    from ..ingestion.db_utils import get_engine
+
+    if config is None:
+        config = load_config()
+
+    logger.info("Iniciando pipeline de pricing...")
+    engine = get_engine()
+
+    df = pd.read_sql("SELECT * FROM gold.fct_pricing_signals", engine)
+    logger.info(f"  Productos a procesar: {len(df)}")
+
+    recommendations = []
+    errors = []
+
+    for _, row in df.iterrows():
+        try:
+            signals = ProductSignals(
+                product_id=row["product_id"],
+                name=row["name_original"],
+                category=row["category"],
+                cost_price=float(row["cost_price"]),
+                current_price=float(row["current_price"]),
+                avg_comp_price=float(row["avg_comp_price"]) if pd.notna(row.get("avg_comp_price")) else None,
+                min_comp_price=float(row["min_comp_price"]) if pd.notna(row.get("min_comp_price")) else None,
+                stock=int(row["stock"]),
+                stock_status=str(row["stock_status"]),
+                velocity_score=float(row.get("velocity_score", 0.0)),
+                sales_7d=int(row.get("sales_7d", 0)),
+            )
+            rec = calculate_price(signals, config)
+            recommendations.append({
+                "product_id": rec.product_id,
+                "current_price": rec.current_price,
+                "suggested_price": rec.suggested_price,
+                "min_allowed_price": rec.min_allowed_price,
+                "competitive_price": rec.competitive_price,
+                "demand_adjustment": rec.demand_adjustment,
+                "stock_adjustment": rec.stock_adjustment,
+                "base_price_used": rec.base_price_used,
+                "action": rec.action,
+                "reasoning": rec.reasoning,
+                "confidence": rec.confidence,
+                "computed_at": pd.Timestamp.now(),
+            })
+        except Exception as e:
+            errors.append({"product_id": row["product_id"], "error": str(e)})
+            logger.warning(f"  Error en {row['product_id']}: {e}")
+
+    if errors:
+        logger.warning(f"  {len(errors)} errores al calcular precios")
+
+    results_df = pd.DataFrame(recommendations)
+
+    # Guardar en Gold
+    results_df.to_sql(
+        "pricing_recommendations",
+        engine,
+        schema="gold",
+        if_exists="replace",
+        index=False,
+    )
+
+    logger.success(
+        f"  ✅ Pricing completado: {len(recommendations)} recomendaciones. "
+        f"Acciones: {results_df['action'].value_counts().to_dict()}"
+    )
+    return results_df
+```
+
+---
+
+## PASO 4.3 — Tests unitarios: `tests/test_pricing_engine.py`
+
+**Instrucción para Claude Code:**
+Crear `tests/test_pricing_engine.py` con mínimo 8 tests:
+
+```python
+"""
+test_pricing_engine.py
+======================
+Tests unitarios para el motor de pricing.
+Ejecutar con: pytest tests/test_pricing_engine.py -v
+"""
+import pytest
+from src.pricing.engine import (
+    calculate_price, ProductSignals, PricingRecommendation,
+    map_velocity_to_demand_adjustment, map_stock_to_adjustment,
+    determine_base_price,
+)
+from src.pricing.config import PricingConfig
+
+
+@pytest.fixture
+def default_config() -> PricingConfig:
+    return PricingConfig(
+        min_margin_pct=0.10,
+        undercut_buffer=1.00,
+        max_adjustment_demand=0.10,
+        min_adjustment_demand=-0.05,
+        max_adjustment_stock_over=-0.05,
+        max_adjustment_stock_under=0.03,
+        overstock_threshold=400,
+        understock_threshold=20,
+    )
+
+
+@pytest.fixture
+def normal_product() -> ProductSignals:
+    return ProductSignals(
+        product_id="SKU-001",
+        name="Test Headphones",
+        category="Audio",
+        cost_price=100.0,
+        current_price=150.0,
+        avg_comp_price=140.0,
+        min_comp_price=135.0,
+        stock=100,
+        stock_status="normal",
+        velocity_score=0.08,
+        sales_7d=50,
+    )
+
+
+# ---- TEST 1: Caso normal con competencia ----
+def test_normal_product_with_competition(normal_product, default_config):
+    rec = calculate_price(normal_product, default_config)
+    assert isinstance(rec, PricingRecommendation)
+    assert rec.suggested_price > 0
+    assert rec.suggested_price >= rec.min_allowed_price
+    assert rec.product_id == "SKU-001"
+
+
+# ---- TEST 2: Precio nunca cae por debajo del margen mínimo ----
+def test_price_never_below_minimum_margin(default_config):
+    """Si competencia es muy agresiva, respetar margen mínimo."""
+    signals = ProductSignals(
+        product_id="SKU-002",
+        name="Budget Item",
+        category="Accessories",
+        cost_price=100.0,
+        current_price=120.0,
+        avg_comp_price=50.0,   # Competencia muy barata
+        min_comp_price=45.0,   # Muy por debajo del costo
+        stock=100,
+        stock_status="normal",
+        velocity_score=0.05,
+        sales_7d=10,
+    )
+    rec = calculate_price(signals, default_config)
+    min_price = 100.0 * (1 + 0.10)  # 110.0
+    assert rec.suggested_price >= min_price, (
+        f"Precio {rec.suggested_price} está por debajo del mínimo {min_price}"
+    )
+
+
+# ---- TEST 3: Sin competencia ----
+def test_no_competition_data(default_config):
+    """Sin datos de competencia, usar margen mínimo como base."""
+    signals = ProductSignals(
+        product_id="SKU-003",
+        name="Unique Product",
+        category="Tablets",
+        cost_price=200.0,
+        current_price=280.0,
+        avg_comp_price=None,
+        min_comp_price=None,
+        stock=50,
+        stock_status="normal",
+        velocity_score=0.05,
+    )
+    rec = calculate_price(signals, default_config)
+    assert rec.suggested_price >= 200.0 * 1.10  # Al menos margen mínimo
+    assert rec.competitive_price is None
+    assert rec.confidence == "low"
+
+
+# ---- TEST 4: Stock = 0 → mantener precio, no calcular ----
+def test_zero_stock_maintains_price(default_config):
+    signals = ProductSignals(
+        product_id="SKU-004",
+        name="Out of Stock Item",
+        category="Laptops",
+        cost_price=500.0,
+        current_price=750.0,
+        avg_comp_price=720.0,
+        min_comp_price=700.0,
+        stock=0,
+        stock_status="out_of_stock",
+        velocity_score=0.0,
+    )
+    rec = calculate_price(signals, default_config)
+    assert rec.action == "maintain"
+    assert rec.suggested_price == 750.0
+    assert "sin stock" in rec.reasoning.lower()
+
+
+# ---- TEST 5: Sobre-stock → precio baja ----
+def test_overstock_reduces_price(normal_product, default_config):
+    signals = ProductSignals(
+        **{**normal_product.__dict__,
+           "stock": 450,
+           "stock_status": "overstock"}
+    )
+    rec_normal = calculate_price(normal_product, default_config)
+    rec_overstock = calculate_price(signals, default_config)
+    assert rec_overstock.suggested_price < rec_normal.suggested_price
+    assert rec_overstock.stock_adjustment == default_config.max_adjustment_stock_over
+
+
+# ---- TEST 6: Stock crítico → precio sube ----
+def test_critical_stock_increases_price(normal_product, default_config):
+    signals = ProductSignals(
+        **{**normal_product.__dict__,
+           "stock": 5,
+           "stock_status": "critical_low"}
+    )
+    rec_normal = calculate_price(normal_product, default_config)
+    rec_critical = calculate_price(signals, default_config)
+    assert rec_critical.suggested_price > rec_normal.suggested_price
+    assert rec_critical.stock_adjustment == default_config.max_adjustment_stock_under
+
+
+# ---- TEST 7: Cost price None → raise ValueError ----
+def test_none_cost_price_raises_error(default_config):
+    signals = ProductSignals(
+        product_id="SKU-007",
+        name="Bad Data Product",
+        category="Audio",
+        cost_price=None,  # type: ignore
+        current_price=100.0,
+        stock=50,
+        stock_status="normal",
+        velocity_score=0.05,
+    )
+    with pytest.raises(ValueError, match="cost_price inválido"):
+        calculate_price(signals, default_config)
+
+
+# ---- TEST 8: Alta demanda → precio sube ----
+def test_high_demand_increases_price(normal_product, default_config):
+    signals_high = ProductSignals(
+        **{**normal_product.__dict__, "velocity_score": 0.30}  # Muy alta conversión
+    )
+    signals_low = ProductSignals(
+        **{**normal_product.__dict__, "velocity_score": 0.01}  # Muy baja conversión
+    )
+    rec_high = calculate_price(signals_high, default_config)
+    rec_low = calculate_price(signals_low, default_config)
+    assert rec_high.suggested_price > rec_low.suggested_price
+    assert rec_high.demand_adjustment > 0
+    assert rec_low.demand_adjustment < 0
+
+
+# ---- TEST 9: Reasoning siempre está presente ----
+def test_reasoning_is_always_present(normal_product, default_config):
+    rec = calculate_price(normal_product, default_config)
+    assert rec.reasoning is not None
+    assert len(rec.reasoning) > 10
+    assert "Costo" in rec.reasoning
+
+
+# ---- TEST 10: Precio sugerido siempre es positivo ----
+@pytest.mark.parametrize("velocity,stock,stock_status", [
+    (0.0, 1, "critical_low"),
+    (0.30, 500, "overstock"),
+    (0.05, 50, "normal"),
+    (0.20, 15, "critical_low"),
+])
+def test_suggested_price_always_positive(velocity, stock, stock_status, default_config):
+    signals = ProductSignals(
+        product_id="SKU-P",
+        name="Test",
+        category="Audio",
+        cost_price=50.0,
+        current_price=70.0,
+        avg_comp_price=65.0,
+        min_comp_price=60.0,
+        stock=stock,
+        stock_status=stock_status,
+        velocity_score=velocity,
+    )
+    rec = calculate_price(signals, default_config)
+    assert rec.suggested_price > 0
+```
+
+**Instrucción para Claude Code:**
+Ejecutar los tests para confirmar que pasan:
+```bash
+cd dynamic-pricing-de
+pytest tests/test_pricing_engine.py -v --tb=short
+```
+
+**Checkpoint Fase 4:** ✅ Los 10 tests pasan (no solo los 5 mínimos requeridos en el spec).
+
+---
+---
+
+# FASE 5: API REST Y DASHBOARD
+## Días 15-17 | Objetivo: Sistema usable por humanos
+
+---
+
+## PASO 5.1 — Schemas de la API: `src/api/schemas.py`
+
+**Instrucción para Claude Code:**
+Crear `src/api/schemas.py`:
+
+```python
+"""schemas.py — Modelos Pydantic para request/response de la API."""
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel
+
+
+class PricingSuggestion(BaseModel):
+    product_id: str
+    name: str
+    category: str
+    current_price: float
+    suggested_price: float
+    price_change_pct: float
+    action: str  # 'increase', 'decrease', 'maintain'
+    reasoning: str
+    confidence: str
+    min_allowed_price: float
+    avg_competitor_price: Optional[float]
+    min_competitor_price: Optional[float]
+    stock: int
+    stock_status: str
+    computed_at: Optional[datetime]
+
+
+class BatchSuggestionRequest(BaseModel):
+    category: Optional[str] = None
+    action_filter: Optional[str] = None  # 'increase', 'decrease', 'maintain'
+    min_confidence: Optional[str] = None  # 'high', 'medium', 'low'
+    limit: int = 100
+
+
+class MatchPendingItem(BaseModel):
+    own_product_id: str
+    own_product_name: str
+    competitor_name: str
+    competitor_id: str
+    similarity_score: float
+    category: str
+
+
+class HealthResponse(BaseModel):
+    status: str
+    postgres: str
+    qdrant: str
+    last_pricing_run: Optional[datetime]
+    total_products: int
+    products_with_suggestions: int
+```
+
+---
+
+## PASO 5.2 — Main de FastAPI: `src/api/main.py`
+
+**Instrucción para Claude Code:**
+Crear `src/api/main.py`:
+
+```python
+"""
+main.py — FastAPI Application
+Endpoints:
+    GET /health
+    GET /pricing/suggestion/{product_id}
+    GET /pricing/batch
+    GET /matches/pending
+"""
+import os
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+import pandas as pd
+from loguru import logger
+
+from .schemas import PricingSuggestion, BatchSuggestionRequest, HealthResponse
+from ..ingestion.db_utils import get_engine
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 Dynamic Pricing API iniciando...")
+    yield
+    logger.info("API cerrando...")
+
+
+app = FastAPI(
+    title="Dynamic Pricing API",
+    description="Motor de pricing dinámico para e-commerce de electrónica",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def get_suggestion_from_db(product_id: str) -> dict:
+    """Obtiene la recomendación de precio más reciente para un producto."""
+    engine = get_engine()
+    query = """
+        SELECT
+            r.product_id,
+            s.name_original AS name,
+            s.category,
+            r.current_price,
+            r.suggested_price,
+            r.action,
+            r.reasoning,
+            r.confidence,
+            r.min_allowed_price,
+            r.competitive_price AS avg_competitor_price,
+            s.min_comp_price AS min_competitor_price,
+            s.stock,
+            s.stock_status,
+            r.computed_at
+        FROM gold.pricing_recommendations r
+        JOIN gold.fct_pricing_signals s ON r.product_id = s.product_id
+        WHERE r.product_id = %(product_id)s
+        ORDER BY r.computed_at DESC
+        LIMIT 1
+    """
+    df = pd.read_sql(query, engine, params={"product_id": product_id})
+    if df.empty:
+        return None
+    row = df.iloc[0].to_dict()
+    row["price_change_pct"] = round(
+        (row["suggested_price"] - row["current_price"]) / row["current_price"] * 100, 2
+    )
+    return row
+
+
+@app.get("/health", response_model=HealthResponse, tags=["System"])
+async def health_check():
+    """Verifica el estado del sistema y sus dependencias."""
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            result = conn.execute(
+                __import__('sqlalchemy').text(
+                    "SELECT COUNT(*) FROM gold.fct_pricing_signals"
+                )
+            )
+            total_products = result.scalar()
+
+            result2 = conn.execute(
+                __import__('sqlalchemy').text(
+                    "SELECT COUNT(*) FROM gold.pricing_recommendations"
+                )
+            )
+            products_with_suggestions = result2.scalar()
+
+        postgres_status = "healthy"
+    except Exception as e:
+        logger.error(f"PostgreSQL error: {e}")
+        postgres_status = f"unhealthy: {str(e)[:100]}"
+        total_products = 0
+        products_with_suggestions = 0
+
+    try:
+        from qdrant_client import QdrantClient
+        client = QdrantClient(
+            host=os.getenv("QDRANT_HOST", "qdrant"),
+            port=int(os.getenv("QDRANT_PORT", "6333"))
+        )
+        client.get_collections()
+        qdrant_status = "healthy"
+    except Exception as e:
+        qdrant_status = f"unhealthy: {str(e)[:100]}"
+
+    return HealthResponse(
+        status="ok" if postgres_status == "healthy" else "degraded",
+        postgres=postgres_status,
+        qdrant=qdrant_status,
+        last_pricing_run=None,
+        total_products=total_products,
+        products_with_suggestions=products_with_suggestions,
+    )
+
+
+@app.get(
+    "/pricing/suggestion/{product_id}",
+    response_model=PricingSuggestion,
+    tags=["Pricing"],
+    summary="Obtener sugerencia de precio para un producto",
+)
+async def get_pricing_suggestion(product_id: str):
+    """
+    Retorna la recomendación de precio más reciente para el producto especificado.
+
+    Incluye:
+    - Precio sugerido y precio actual
+    - Acción recomendada (increase/decrease/maintain)
+    - Reasoning detallado con los factores considerados
+    - Datos de competencia y stock
+    """
+    row = get_suggestion_from_db(product_id)
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Producto '{product_id}' no encontrado o sin recomendación calculada"
+        )
+    return PricingSuggestion(**row)
+
+
+@app.get(
+    "/pricing/batch",
+    response_model=list[PricingSuggestion],
+    tags=["Pricing"],
+    summary="Consulta masiva de sugerencias de precio",
+)
+async def get_pricing_batch(
+    category: str = Query(None, description="Filtrar por categoría"),
+    action: str = Query(None, description="Filtrar por acción: increase/decrease/maintain"),
+    confidence: str = Query(None, description="Filtrar por confianza: high/medium/low"),
+    limit: int = Query(100, ge=1, le=1000),
+):
+    """Retorna sugerencias de precio para múltiples productos con filtros opcionales."""
+    engine = get_engine()
+
+    where_clauses = ["1=1"]
+    params = {"limit": limit}
+
+    if category:
+        where_clauses.append("s.category = %(category)s")
+        params["category"] = category
+    if action:
+        where_clauses.append("r.action = %(action)s")
+        params["action"] = action
+    if confidence:
+        where_clauses.append("r.confidence = %(confidence)s")
+        params["confidence"] = confidence
+
+    where_sql = " AND ".join(where_clauses)
+    query = f"""
+        SELECT
+            r.product_id, s.name_original AS name, s.category,
+            r.current_price, r.suggested_price, r.action, r.reasoning,
+            r.confidence, r.min_allowed_price,
+            r.competitive_price AS avg_competitor_price,
+            s.min_comp_price AS min_competitor_price,
+            s.stock, s.stock_status, r.computed_at
+        FROM gold.pricing_recommendations r
+        JOIN gold.fct_pricing_signals s ON r.product_id = s.product_id
+        WHERE {where_sql}
+        ORDER BY ABS(r.suggested_price - r.current_price) DESC
+        LIMIT %(limit)s
+    """
+    df = pd.read_sql(query, engine, params=params)
+    df["price_change_pct"] = (
+        (df["suggested_price"] - df["current_price"]) / df["current_price"] * 100
+    ).round(2)
+
+    return [PricingSuggestion(**row) for row in df.to_dict("records")]
+
+
+@app.get(
+    "/matches/pending",
+    tags=["Matching"],
+    summary="Productos pendientes de revisión manual de matching",
+)
+async def get_pending_matches(limit: int = Query(50, ge=1, le=500)):
+    """Retorna matches con similitud entre 0.70 y 0.85 que requieren revisión humana."""
+    engine = get_engine()
+    df = pd.read_sql(
+        """SELECT own_product_id, own_product_name, competitor_name,
+                  competitor_id, similarity_score, category
+           FROM silver.product_matches
+           WHERE status = 'review'
+           ORDER BY similarity_score DESC
+           LIMIT %(limit)s""",
+        engine, params={"limit": limit}
+    )
+    return df.to_dict("records")
+```
+
+---
+
+## PASO 5.3 — Dashboard Streamlit: `dashboard/app.py`
+
+**Instrucción para Claude Code:**
+Crear `dashboard/app.py`:
+
+```python
+"""
+app.py — Dashboard de Dynamic Pricing en Streamlit
+Visualiza: KPIs, comparación de precios, revenue at risk, productos sin match
+"""
+import os
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import streamlit as st
+from sqlalchemy import text
+
+import sys
+sys.path.insert(0, '/app')
+from src.ingestion.db_utils import get_engine
+
+st.set_page_config(
+    page_title="Dynamic Pricing Dashboard",
+    page_icon="💰",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ============================================================
+# CARGA DE DATOS
+# ============================================================
+
+@st.cache_data(ttl=300)  # Cache por 5 minutos
+def load_pricing_data():
+    engine = get_engine()
+    try:
+        df = pd.read_sql("""
+            SELECT
+                r.product_id, s.name_original AS name, s.category,
+                r.current_price, r.suggested_price, r.action, r.confidence,
+                r.reasoning, r.demand_adjustment, r.stock_adjustment,
+                s.avg_comp_price, s.min_comp_price, s.stock, s.stock_status,
+                s.velocity_score, s.sales_7d, s.margin_current,
+                s.price_position, s.n_competitors
+            FROM gold.pricing_recommendations r
+            JOIN gold.fct_pricing_signals s ON r.product_id = s.product_id
+        """, engine)
+        df["price_change_pct"] = (
+            (df["suggested_price"] - df["current_price"]) / df["current_price"] * 100
+        ).round(2)
+        df["revenue_at_risk"] = (
+            (df["current_price"] - df["suggested_price"]) * df["sales_7d"]
+        ).clip(lower=0)
+        return df
+    except Exception as e:
+        st.error(f"Error cargando datos: {e}")
+        return pd.DataFrame()
+
+
+# ============================================================
+# SIDEBAR: FILTROS
+# ============================================================
+
+st.sidebar.title("🔧 Filtros")
+
+df = load_pricing_data()
+
+if df.empty:
+    st.error("⚠️ No hay datos disponibles. Asegúrate de que el pipeline se haya ejecutado.")
+    st.stop()
+
+categories = ["Todos"] + sorted(df["category"].unique().tolist())
+selected_category = st.sidebar.selectbox("Categoría", categories)
+
+selected_action = st.sidebar.multiselect(
+    "Acción recomendada",
+    ["increase", "decrease", "maintain"],
+    default=["increase", "decrease", "maintain"],
+)
+
+selected_confidence = st.sidebar.multiselect(
+    "Confianza",
+    ["high", "medium", "low"],
+    default=["high", "medium"],
+)
+
+# Aplicar filtros
+filtered_df = df.copy()
+if selected_category != "Todos":
+    filtered_df = filtered_df[filtered_df["category"] == selected_category]
+if selected_action:
+    filtered_df = filtered_df[filtered_df["action"].isin(selected_action)]
+if selected_confidence:
+    filtered_df = filtered_df[filtered_df["confidence"].isin(selected_confidence)]
+
+# ============================================================
+# TÍTULO
+# ============================================================
+
+st.title("💰 Dynamic Pricing Dashboard")
+st.caption(f"Sistema de pricing inteligente • {len(filtered_df):,} productos filtrados de {len(df):,} totales")
+
+# ============================================================
+# KPIs
+# ============================================================
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+with col1:
+    total_revenue_at_risk = filtered_df["revenue_at_risk"].sum()
+    st.metric(
+        "💸 Revenue at Risk (7d)",
+        f"${total_revenue_at_risk:,.0f}",
+        help="Ventas perdidas si no se ajustan precios (7 días)"
+    )
+
+with col2:
+    avg_margin = filtered_df["margin_current"].mean()
+    st.metric(
+        "📊 Margen Promedio",
+        f"{avg_margin:.1%}",
+        help="Margen bruto promedio del catálogo filtrado"
+    )
+
+with col3:
+    badly_positioned = (
+        filtered_df["price_position"].isin(["much_more_expensive", "much_cheaper"])
+    ).sum()
+    pct_bad = badly_positioned / len(filtered_df) * 100
+    st.metric(
+        "⚠️ Mal Posicionados",
+        f"{badly_positioned:,}",
+        f"{pct_bad:.1f}% del catálogo",
+        delta_color="inverse",
+    )
+
+with col4:
+    decrease_count = (filtered_df["action"] == "decrease").sum()
+    increase_count = (filtered_df["action"] == "increase").sum()
+    st.metric(
+        "📉 Bajar Precio",
+        f"{decrease_count:,}",
+        f"{decrease_count/len(filtered_df):.1%}",
+        delta_color="normal",
+    )
+
+with col5:
+    no_competition = filtered_df["avg_comp_price"].isna().sum()
+    st.metric(
+        "🔍 Sin Match",
+        f"{no_competition:,}",
+        f"{no_competition/len(filtered_df):.1%}",
+        delta_color="inverse",
+    )
+
+st.divider()
+
+# ============================================================
+# GRÁFICOS
+# ============================================================
+
+col_left, col_right = st.columns(2)
+
+with col_left:
+    st.subheader("📌 Precio Propio vs Competencia")
+    scatter_df = filtered_df.dropna(subset=["avg_comp_price"])
+
+    fig = px.scatter(
+        scatter_df,
+        x="avg_comp_price",
+        y="current_price",
+        color="category",
+        size="sales_7d",
+        hover_data=["name", "action", "price_change_pct"],
+        labels={
+            "avg_comp_price": "Precio Promedio Competencia ($)",
+            "current_price": "Precio Actual ($)",
+        },
+        title=f"Comparación precio propio vs competencia ({len(scatter_df):,} productos)"
+    )
+    # Línea diagonal (precio = competencia)
+    max_val = max(scatter_df["avg_comp_price"].max(), scatter_df["current_price"].max())
+    fig.add_shape(
+        type="line", x0=0, y0=0, x1=max_val, y1=max_val,
+        line=dict(color="red", width=1, dash="dash"),
+    )
+    fig.add_annotation(
+        x=max_val * 0.8, y=max_val * 0.85,
+        text="Precio = Competencia",
+        showarrow=False, font=dict(color="red", size=10)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+with col_right:
+    st.subheader("🎯 Distribución de Acciones por Categoría")
+    action_by_cat = (
+        filtered_df.groupby(["category", "action"])
+        .size().reset_index(name="count")
+    )
+    fig2 = px.bar(
+        action_by_cat,
+        x="category",
+        y="count",
+        color="action",
+        barmode="stack",
+        color_discrete_map={
+            "increase": "#2ecc71",
+            "decrease": "#e74c3c",
+            "maintain": "#95a5a6",
+        },
+        title="Acciones recomendadas por categoría"
+    )
+    fig2.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig2, use_container_width=True)
+
+# ============================================================
+# TABLA DE RECOMENDACIONES
+# ============================================================
+
+st.subheader("📋 Recomendaciones de Precio")
+
+table_df = filtered_df[[
+    "product_id", "name", "category", "current_price",
+    "suggested_price", "price_change_pct", "action",
+    "confidence", "stock_status", "revenue_at_risk"
+]].copy()
+
+table_df = table_df.sort_values("revenue_at_risk", ascending=False)
+table_df.columns = [
+    "ID", "Producto", "Categoría", "Precio Actual",
+    "Precio Sugerido", "Cambio %", "Acción",
+    "Confianza", "Estado Stock", "Revenue at Risk"
+]
+
+st.dataframe(
+    table_df.head(200),
+    use_container_width=True,
+    column_config={
+        "Precio Actual": st.column_config.NumberColumn(format="$%.2f"),
+        "Precio Sugerido": st.column_config.NumberColumn(format="$%.2f"),
+        "Cambio %": st.column_config.NumberColumn(format="%.1f%%"),
+        "Revenue at Risk": st.column_config.NumberColumn(format="$%.0f"),
+    }
+)
+
+st.caption(f"Mostrando top 200 por Revenue at Risk. Total: {len(filtered_df):,} productos.")
+```
+
+**Checkpoint Fase 5:**
+```bash
+# Verificar que la API responde
+curl http://localhost:8000/health
+curl http://localhost:8000/pricing/suggestion/SKU-00001
+curl "http://localhost:8000/pricing/batch?category=Audio&limit=5"
+
+# Verificar documentación automática
+# Abrir http://localhost:8000/docs en el navegador
+```
+
+---
+---
+
+# FASE 6: ORQUESTACIÓN END-TO-END
+## Días 18-20 | Objetivo: Pipeline automático completo
+
+---
+
+## PASO 6.1 — DAG maestro: `airflow/dags/dag_dynamic_pricing_pipeline.py`
+
+**Instrucción para Claude Code:**
+Crear `airflow/dags/dag_dynamic_pricing_pipeline.py`:
+
+```python
+"""
+dag_dynamic_pricing_pipeline.py
+================================
+DAG MAESTRO del sistema de Dynamic Pricing.
+Ejecuta el pipeline completo cada hora:
+
+    ingest → validate → dbt_bronze → dbt_silver → dbt_tests
+    → dbt_gold → embeddings → matching → pricing_engine → done
+
+SLA: 10 minutos máximo
+Retries: 2 intentos para tasks de ingesta
+Alerta: Log cuando falla data quality
+"""
+import subprocess
+from datetime import datetime, timedelta
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator, BranchPythonOperator
+from airflow.operators.empty import EmptyOperator
+from airflow.utils.dates import days_ago
+from loguru import logger
+
+import sys
+sys.path.insert(0, '/opt/airflow/src')
+
+
+# ============================================================
+# CALLABLES
+# ============================================================
+
+def task_ingest_all():
+    """Task 1: Generar e ingestar todos los datos a Bronze."""
+    import subprocess
+    subprocess.run(
+        ["python", "/opt/airflow/scripts/generate_datasets.py",
+         "--output-dir", "/opt/airflow/data/raw"],
+        check=True
+    )
+    from ingestion.ingest_catalog import ingest_catalog
+    from ingestion.ingest_competitors import ingest_competitors
+    from ingestion.ingest_inventory import ingest_inventory
+
+    r1 = ingest_catalog("/opt/airflow/data/raw/catalog.csv")
+    r2 = ingest_competitors("/opt/airflow/data/raw/competitors.csv")
+    r3 = ingest_inventory("/opt/airflow/data/raw/inventory_demand.csv")
+    logger.info(f"Ingesta completa: {r1 + r2 + r3} filas totales")
+
+
+def task_validate_data(**context):
+    """
+    Task 2: Validar calidad de datos en Bronze.
+    Si falla, el pipeline se detiene y genera alerta.
+    """
+    from sqlalchemy import text
+    from ingestion.db_utils import get_engine
+
+    engine = get_engine()
+    validations = []
+
+    with engine.connect() as conn:
+        # Validación 1: Sin precios negativos
+        result = conn.execute(text(
+            "SELECT COUNT(*) FROM bronze.raw_products WHERE current_price <= 0"
+        )).scalar()
+        validations.append(("precio_positivo", result == 0, result))
+
+        # Validación 2: Sin costos nulos
+        result = conn.execute(text(
+            "SELECT COUNT(*) FROM bronze.raw_products WHERE cost_price IS NULL OR cost_price <= 0"
+        )).scalar()
+        validations.append(("costo_valido", result == 0, result))
+
+        # Validación 3: Sin stock negativo
+        result = conn.execute(text(
+            "SELECT COUNT(*) FROM bronze.raw_inventory WHERE stock < 0"
+        )).scalar()
+        validations.append(("stock_no_negativo", result == 0, result))
+
+        # Validación 4: Sin precios de competencia negativos
+        result = conn.execute(text(
+            "SELECT COUNT(*) FROM bronze.raw_competitors WHERE competitor_price <= 0"
+        )).scalar()
+        validations.append(("comp_precio_positivo", result == 0, result))
+
+        # Validación 5: Mínimo de productos cargados
+        result = conn.execute(text(
+            "SELECT COUNT(*) FROM bronze.raw_products"
+        )).scalar()
+        validations.append(("productos_minimos", result >= 100, result))
+
+    failed = [(name, val) for name, passed, val in validations if not passed]
+
+    if failed:
+        error_msg = " | ".join([f"{name}={val}" for name, val in failed])
+        logger.error(f"❌ DATA QUALITY FAILED: {error_msg}")
+        raise ValueError(f"Validación de datos fallida: {error_msg}")
+
+    logger.success(f"✅ Data quality OK: {len(validations)} validaciones pasadas")
+
+
+def task_run_dbt_full():
+    """Task 3: Ejecutar todos los modelos dbt en orden."""
+    for layer in ["bronze", "silver", "gold"]:
+        result = subprocess.run(
+            ["dbt", "run", "--select", layer,
+             "--project-dir", "/opt/airflow/dbt",
+             "--profiles-dir", "/opt/airflow/dbt"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"dbt {layer} falló:\n{result.stderr}")
+        logger.info(f"dbt {layer}: OK")
+
+    # Ejecutar tests de Silver
+    result = subprocess.run(
+        ["dbt", "test", "--select", "silver",
+         "--project-dir", "/opt/airflow/dbt",
+         "--profiles-dir", "/opt/airflow/dbt"],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"dbt tests fallaron:\n{result.stderr}")
+    logger.info("dbt tests: OK")
+
+
+def task_generate_embeddings():
+    """Task 4: Generar e indexar embeddings (solo si hay productos nuevos)."""
+    import pandas as pd
+    from ingestion.db_utils import get_engine
+    from matching.embeddings import generate_and_index_embeddings
+
+    engine = get_engine()
+
+    # Productos propios
+    own_df = pd.read_sql(
+        "SELECT product_id, name_original AS name, category FROM silver.stg_products",
+        engine
+    )
+    generate_and_index_embeddings(
+        own_df, source="own", name_col="name",
+        product_id_col="product_id", category_col="category"
+    )
+
+    # Productos de competencia
+    comp_df = pd.read_sql(
+        """SELECT CONCAT(competitor_id, '_', ROW_NUMBER() OVER()) AS id,
+                  product_name_competitor AS name, category,
+                  competitor_price, competitor_id
+           FROM silver.stg_competitor_prices""",
+        engine
+    )
+    generate_and_index_embeddings(
+        comp_df, source="competitor", name_col="name",
+        product_id_col="id", price_col="competitor_price",
+        category_col="category"
+    )
+
+
+def task_run_matching():
+    """Task 5: Ejecutar matching de productos."""
+    from matching.matcher import run_matching_pipeline
+    results = run_matching_pipeline()
+    logger.info(f"Matching: {len(results)} matches encontrados")
+
+
+def task_run_pricing():
+    """Task 6: Ejecutar motor de pricing y guardar recomendaciones."""
+    from pricing.engine import run_pricing_pipeline
+    results = run_pricing_pipeline()
+    logger.info(f"Pricing: {len(results)} recomendaciones generadas")
+
+    # Resumen de acciones
+    if not results.empty:
+        summary = results["action"].value_counts().to_dict()
+        logger.success(f"Resumen de acciones: {summary}")
+
+
+# ============================================================
+# DAG DEFINITION
+# ============================================================
+
+DEFAULT_ARGS = {
+    "owner": "data-platform",
+    "depends_on_past": False,
+    "start_date": days_ago(1),
+    "retries": 2,
+    "retry_delay": timedelta(minutes=3),
+    "execution_timeout": timedelta(minutes=10),
+    "email_on_failure": False,
+    "email_on_retry": False,
+}
+
+with DAG(
+    dag_id="dynamic_pricing_pipeline",
+    default_args=DEFAULT_ARGS,
+    description="Pipeline maestro de Dynamic Pricing - ejecuta cada hora",
+    schedule_interval="@hourly",
+    catchup=False,
+    max_active_runs=1,  # Evitar ejecuciones paralelas
+    tags=["pricing", "pipeline", "master", "production"],
+    doc_md="""
+    ## Dynamic Pricing Pipeline
+
+    Pipeline maestro que ejecuta el flujo completo:
+    1. **Ingesta** → Datos a capa Bronze
+    2. **Validación** → Data quality checks (falla el DAG si no pasa)
+    3. **dbt** → Transformaciones Bronze → Silver → Gold
+    4. **Embeddings** → Vectorización de productos
+    5. **Matching** → Emparejar productos propios vs competencia
+    6. **Pricing** → Calcular precios sugeridos
+
+    **SLA:** 10 minutos máximo por ejecución
+    **Schedule:** Cada hora
+    """,
+) as dag:
+
+    start = EmptyOperator(task_id="pipeline_start")
+    end = EmptyOperator(task_id="pipeline_complete")
+
+    t_ingest = PythonOperator(
+        task_id="ingest_data",
+        python_callable=task_ingest_all,
+        retries=2,
+    )
+
+    t_validate = PythonOperator(
+        task_id="validate_data_quality",
+        python_callable=task_validate_data,
+        retries=0,  # No reintentar validaciones fallidas
+    )
+
+    t_dbt = PythonOperator(
+        task_id="run_dbt_transformations",
+        python_callable=task_run_dbt_full,
+        retries=1,
+    )
+
+    t_embeddings = PythonOperator(
+        task_id="generate_embeddings",
+        python_callable=task_generate_embeddings,
+        retries=1,
+        execution_timeout=timedelta(minutes=8),
+    )
+
+    t_matching = PythonOperator(
+        task_id="run_product_matching",
+        python_callable=task_run_matching,
+        retries=1,
+    )
+
+    t_pricing = PythonOperator(
+        task_id="run_pricing_engine",
+        python_callable=task_run_pricing,
+        retries=1,
+    )
+
+    # Cadena de dependencias
+    start >> t_ingest >> t_validate >> t_dbt >> t_embeddings >> t_matching >> t_pricing >> end
+```
+
+**Checkpoint Fase 6:**
+```bash
+# Verificar que el DAG aparece en Airflow sin errores
+# Abrir http://localhost:8080 → DAGs → dynamic_pricing_pipeline
+
+# Disparar manualmente para test
+airflow dags trigger dynamic_pricing_pipeline
+
+# Monitorear ejecución
+airflow dags list-runs -d dynamic_pricing_pipeline
+```
+
+---
+---
+
+# FASE 7: IaC Y POLISH FINAL
+## Días 21-23 | Objetivo: Demo profesional y repo publicable
+
+---
+
+## PASO 7.1 — Terraform básico para AWS
+
+**Instrucción para Claude Code:**
+Crear `terraform/variables.tf`:
+
+```hcl
+variable "project_name" {
+  description = "Nombre del proyecto"
+  type        = string
+  default     = "dynamic-pricing"
+}
+
+variable "environment" {
+  description = "Ambiente de despliegue"
+  type        = string
+  default     = "dev"
+}
+
+variable "aws_region" {
+  description = "Región AWS"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "db_password" {
+  description = "Password de base de datos"
+  type        = string
+  sensitive   = true
+}
+```
+
+**Instrucción para Claude Code:**
+Crear `terraform/main.tf`:
+
+```hcl
+# Dynamic Pricing - Infraestructura AWS (demo/portfolio)
+# Para deployar: terraform init && terraform plan
+
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  required_version = ">= 1.6"
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+# ===== VPC =====
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  tags = { Name = "${var.project_name}-vpc" }
+}
+
+resource "aws_subnet" "private" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = "${var.aws_region}a"
+  tags = { Name = "${var.project_name}-private-subnet" }
+}
+
+# ===== RDS PostgreSQL =====
+resource "aws_db_instance" "postgres" {
+  identifier        = "${var.project_name}-postgres"
+  engine            = "postgres"
+  engine_version    = "15.4"
+  instance_class    = "db.t3.small"
+  allocated_storage = 20
+  db_name           = "dynamic_pricing"
+  username          = "pricing_user"
+  password          = var.db_password
+  skip_final_snapshot = true
+
+  tags = { Project = var.project_name, Environment = var.environment }
+}
+
+# ===== S3 para artefactos ML =====
+resource "aws_s3_bucket" "artifacts" {
+  bucket = "${var.project_name}-artifacts-${var.environment}"
+  tags   = { Project = var.project_name }
+}
+
+resource "aws_s3_bucket_versioning" "artifacts" {
+  bucket = aws_s3_bucket.artifacts.id
+  versioning_configuration { status = "Enabled" }
+}
+
+# ===== ECR para imágenes Docker =====
+resource "aws_ecr_repository" "api" {
+  name                 = "${var.project_name}/api"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+}
+
+resource "aws_ecr_repository" "airflow" {
+  name                 = "${var.project_name}/airflow"
+  image_tag_mutability = "MUTABLE"
+}
+```
+
+---
+
+## PASO 7.2 — README.md profesional
+
+**Instrucción para Claude Code:**
+Crear `README.md` completo con el siguiente contenido:
+
+```markdown
+# Dynamic Pricing System for E-commerce
+
+> Motor de pricing dinámico end-to-end que reacciona cada hora a cambios en
+> competencia, stock y demanda. Demuestra competencias de **Data Engineering**,
+> **ML Engineering** y **MLOps**.
+
+## Arquitectura
+
+```mermaid
+flowchart TB
+    subgraph Sources["📥 Sources"]
+        CSV["CSV Files\n(Synthetic Data)"]
+    end
+
+    subgraph Bronze["🥉 Bronze Layer"]
+        PG_B["PostgreSQL\nraw_products\nraw_competitors\nraw_inventory"]
+    end
+
+    subgraph Silver["🥈 Silver Layer"]
+        PG_S["PostgreSQL\nstg_products\nstg_competitors\nproduct_matches"]
+    end
+
+    subgraph Gold["🥇 Gold Layer"]
+        PG_G["PostgreSQL\nfct_pricing_signals\npricing_recommendations"]
+    end
+
+    subgraph ML["🧠 ML Layer"]
+        QD["Qdrant\nVector DB\n(384-dim embeddings)"]
+    end
+
+    subgraph Orchestration["⚙️ Orchestration"]
+        AF["Apache Airflow\n@hourly pipeline"]
+    end
+
+    subgraph Presentation["🖥️ Presentation"]
+        API["FastAPI\n:8000"]
+        DASH["Streamlit\n:8501"]
+    end
+
+    CSV --> Bronze
+    Bronze -->|dbt| Silver
+    Silver -->|dbt| Gold
+    Silver -->|sentence-transformers| ML
+    ML -->|cosine similarity| Silver
+    Gold --> API
+    Gold --> DASH
+    AF --> Sources
+```
+
+## Stack Tecnológico
+
+| Capa | Tecnología | Justificación |
+|------|-----------|---------------|
+| Orquestación | **Apache Airflow** | Estándar de industria; DAGs con dependencias explícitas |
+| Base de Datos | **PostgreSQL 15** | Universal; soporta analytics y transacciones |
+| Vector DB | **Qdrant** | Open source, API REST limpia, local-friendly |
+| Transformación | **dbt Core** | Separa lógica de negocio del código Python; lineage automático |
+| API | **FastAPI** | Async, auto-documentada, type-safe con Pydantic |
+| Dashboard | **Streamlit** | Rápido de construir, excelente para demos |
+| ML/NLP | **sentence-transformers** | No requiere GPU; modelos pre-entrenados de calidad |
+| Calidad | **dbt tests + validaciones Python** | Data contracts explícitos |
+| Contenedores | **Docker + Compose** | Reproducibilidad absoluta |
+
+## Inicio Rápido
+
+**Prerequisitos:** Docker 24+, Docker Compose 2.20+, Git
+
+```bash
+# 1. Clonar repositorio
+git clone https://github.com/tuusuario/dynamic-pricing-de.git
+cd dynamic-pricing-de
+
+# 2. Configurar variables de entorno
+cp .env.example .env
+# (Los valores por defecto funcionan para desarrollo local)
+
+# 3. Levantar stack completo
+docker-compose up -d
+
+# 4. Esperar inicialización (~2 minutos)
+docker-compose ps
+
+# 5. Generar datos e inicializar pipeline
+docker exec pricing_airflow_scheduler \
+  airflow dags trigger dynamic_pricing_pipeline
+
+# 6. Acceder a los servicios
+# Airflow UI:    http://localhost:8080  (admin/admin)
+# FastAPI docs:  http://localhost:8000/docs
+# Dashboard:     http://localhost:8501
+# MinIO:         http://localhost:9001  (minioadmin/minioadmin123)
+```
+
+## Endpoints de la API
+
+```bash
+# Health check
+GET  /health
+
+# Sugerencia individual
+GET  /pricing/suggestion/{product_id}
+
+# Consulta masiva con filtros
+GET  /pricing/batch?category=Audio&action=decrease
+
+# Matches pendientes de revisión
+GET  /matches/pending
+```
+
+## Decisiones Técnicas
+
+**¿Por qué Qdrant y no Pinecone?**
+Para un portfolio local, Qdrant es preferible: open source, corre en Docker sin API key,
+y tiene una API REST equivalente. La migración a Pinecone/Weaviate managed requeriría
+solo cambiar el cliente, no la lógica.
+
+**¿Por qué reglas de negocio y no ML black-box?**
+El pricing necesita explicabilidad para el equipo comercial. "El precio sube porque
+la demanda aumentó 30% y el stock está en nivel crítico" es accionable. Un modelo
+de gradient boosting con 50 features no lo es.
+
+**¿Por qué dbt y no SQL puro en Python?**
+dbt separa la lógica de negocio del código Python, genera documentación automática,
+y permite que analistas de negocio entiendan las transformaciones sin leer Python.
+El lineage automático de Bronze → Silver → Gold es un activo en auditorías.
+
+## Escalabilidad
+
+Para pasar de 1,000 a 1,000,000 SKUs:
+- **Qdrant** → Pinecone/Weaviate managed (cambio de cliente)
+- **PostgreSQL** → Redshift/BigQuery (cambio de profile en dbt)
+- **Pandas** → Spark/Polars para el motor de pricing en batch
+- **Airflow LocalExecutor** → CeleryExecutor con workers distribuidos
+- **API** → Cachear con Redis, rate limiting, autoscaling en ECS/GKE
+
+## Tests
+
+```bash
+# Ejecutar tests unitarios del motor de pricing
+pytest tests/test_pricing_engine.py -v
+
+# Con coverage
+pytest tests/ --cov=src --cov-report=html
+```
+
+## Screenshots
+
+> Dashboard, API docs y Airflow UI aquí (agregar después de primera ejecución)
+
+---
+
+*Construido como proyecto de portafolio para demostrar competencias en Data Engineering y MLOps.*
+```
+
+---
+
+## PASO 7.3 — Script de verificación final: `scripts/verify_setup.sh`
+
+**Instrucción para Claude Code:**
+Crear `scripts/verify_setup.sh`:
+
+```bash
+#!/bin/bash
+# Verifica que el setup completo está funcionando correctamente
+
+echo "=========================================="
+echo "  DYNAMIC PRICING - VERIFICACIÓN FINAL"
+echo "=========================================="
+echo ""
+
+PASSED=0
+FAILED=0
+
+check() {
+    local name=$1
+    local cmd=$2
+    if eval "$cmd" > /dev/null 2>&1; then
+        echo "✅ $name"
+        PASSED=$((PASSED + 1))
+    else
+        echo "❌ $name"
+        FAILED=$((FAILED + 1))
+    fi
+}
+
+echo "🐳 SERVICIOS DOCKER"
+check "PostgreSQL running" "docker ps | grep pricing_postgres | grep healthy"
+check "Qdrant running" "docker ps | grep pricing_qdrant | grep healthy"
+check "MinIO running" "docker ps | grep pricing_minio | grep healthy"
+check "Airflow webserver running" "docker ps | grep pricing_airflow_webserver"
+check "API running" "docker ps | grep pricing_api | grep healthy"
+check "Dashboard running" "docker ps | grep pricing_dashboard"
+
+echo ""
+echo "🌐 ENDPOINTS"
+check "API health" "curl -sf http://localhost:8000/health"
+check "API docs" "curl -sf http://localhost:8000/docs"
+check "Airflow UI" "curl -sf http://localhost:8080/health"
+check "Qdrant healthz" "curl -sf http://localhost:6333/healthz"
+
+echo ""
+echo "🗄️  BASE DE DATOS"
+check "bronze.raw_products existe" "docker exec pricing_postgres psql -U pricing_user -d dynamic_pricing -c '\dt bronze.*' | grep raw_products"
+check "silver.stg_products existe" "docker exec pricing_postgres psql -U pricing_user -d dynamic_pricing -c '\dt silver.*' | grep stg_products"
+check "gold.fct_pricing_signals existe" "docker exec pricing_postgres psql -U pricing_user -d dynamic_pricing -c '\dt gold.*' | grep fct_pricing_signals"
+check "gold.pricing_recommendations existe" "docker exec pricing_postgres psql -U pricing_user -d dynamic_pricing -c '\dt gold.*' | grep pricing_recommendations"
+
+echo ""
+echo "🧪 TESTS"
+check "Unit tests pasan" "cd $(dirname $0)/.. && python -m pytest tests/test_pricing_engine.py -q --tb=no"
+
+echo ""
+echo "=========================================="
+echo "  RESULTADO: $PASSED pasados, $FAILED fallidos"
+echo "=========================================="
+
+if [ $FAILED -eq 0 ]; then
+    echo "  🎉 Sistema listo para demo!"
+else
+    echo "  ⚠️  Revisar los items fallidos arriba"
+fi
+```
+
+---
+
+## CHECKPOINT FINAL — Definition of Done
+
+**Instrucción para Claude Code:**
+Ejecutar el script de verificación y confirmar todos los puntos:
+
+```bash
+chmod +x scripts/verify_setup.sh
+./scripts/verify_setup.sh
+```
+
+### Lista de verificación completa del proyecto:
+
+- [ ] `git clone + docker-compose up` levanta todo sin errores en < 5 minutos
+- [ ] El DAG `dynamic_pricing_pipeline` ejecuta completo sin intervención manual
+- [ ] `GET /pricing/suggestion/{product_id}` responde en < 200ms con precio + reasoning
+- [ ] El dashboard muestra al menos 3 KPIs y permite filtrar por categoría
+- [ ] El matching tiene > 70% de cobertura (productos con al menos 1 match)
+- [ ] 10 tests unitarios pasan para el motor de pricing (`pytest tests/ -v`)
+- [ ] El README explica decisiones técnicas y cómo escalar el sistema
+- [ ] Terraform tiene código válido (`terraform validate`)
+- [ ] Todos los archivos Python tienen type hints
+- [ ] `ruff check src/` no reporta errores críticos
+
+---
+
+## ORDEN DE EJECUCIÓN RECOMENDADO PARA CLAUDE CODE
+
+```
+Fase 0 (PRIMERO - requerida por todas las demás)
+    → PASO 0.1: Estructura de directorios
+    → PASO 0.2: .gitignore
+    → PASO 0.3: .env files
+    → PASO 0.4: docker-compose.yml
+    → PASO 0.5: Dockerfiles
+    → PASO 0.6: requirements.txt + pyproject.toml
+    → PASO 0.7: pricing_config.yaml
+    → EJECUTAR: docker-compose up -d postgres qdrant minio
+
+Fase 1 (Segunda)
+    → PASO 1.1: generate_datasets.py (EJECUTAR y verificar CSVs)
+    → PASO 1.2: Módulos de ingesta src/ingestion/
+    → PASO 1.3: DAG de ingesta
+    → EJECUTAR: python scripts/generate_datasets.py
+
+Fase 2 (Tercera - requiere Fase 1 completa)
+    → PASO 2.1: dbt_project.yml + profiles.yml
+    → PASO 2.2: Modelos Bronze
+    → PASO 2.3: Modelos Silver
+    → PASO 2.4: Modelo Gold fct_pricing_signals
+    → PASO 2.5: dbt tests schema.yml
+    → EJECUTAR: dbt run && dbt test
+
+Fase 3 (Cuarta - requiere Fase 2 completa)
+    → PASO 3.1: src/matching/embeddings.py
+    → PASO 3.2: src/matching/matcher.py
+    → PASO 3.3: DAG de matching
+
+Fase 4 (Quinta - requiere Fase 3 completa)
+    → PASO 4.1: src/pricing/config.py
+    → PASO 4.2: src/pricing/engine.py
+    → PASO 4.3: tests/test_pricing_engine.py
+    → EJECUTAR: pytest tests/test_pricing_engine.py -v
+
+Fase 5 (Sexta - requiere Fase 4 completa)
+    → PASO 5.1: src/api/schemas.py
+    → PASO 5.2: src/api/main.py
+    → PASO 5.3: dashboard/app.py
+    → EJECUTAR: docker-compose up -d api dashboard
+
+Fase 6 (Séptima - requiere todas las anteriores)
+    → PASO 6.1: DAG maestro dag_dynamic_pricing_pipeline.py
+    → EJECUTAR: airflow dags trigger dynamic_pricing_pipeline
+
+Fase 7 (Última)
+    → PASO 7.1: terraform/
+    → PASO 7.2: README.md
+    → PASO 7.3: scripts/verify_setup.sh
+    → EJECUTAR: ./scripts/verify_setup.sh
+```
+
+---
+
+*Este plan fue generado para el proyecto Dynamic Pricing System | Versión 1.0*
+*Tiempo estimado de implementación: 23 días para implementación completa*

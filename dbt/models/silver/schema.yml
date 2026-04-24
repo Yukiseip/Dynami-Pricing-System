@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: stg_products
+    description: "Catálogo de productos limpio y normalizado"
+    columns:
+      - name: product_id
+        tests: [not_null, unique]
+      - name: cost_price
+        tests:
+          - not_null
+      - name: current_price
+        tests:
+          - not_null
+      - name: stock
+        tests:
+          - not_null
+      - name: stock_status
+        tests:
+          - accepted_values:
+              values: ['out_of_stock', 'critical_low', 'normal', 'overstock']
+
+  - name: stg_competitor_prices
+    description: "Precios de competencia limpios"
+    columns:
+      - name: product_id_own
+        tests: [not_null]
+      - name: competitor_price
+        tests:
+          - not_null

@@ -1,0 +1,27 @@
+pricing_engine:
+  min_margin_pct: 0.10          # Margen mínimo 10%
+  undercut_buffer: 1.00         # $1 por debajo del competidor
+  max_adjustment_demand: 0.10   # +10% máximo por demanda alta
+  min_adjustment_demand: -0.05  # -5% mínimo por demanda baja
+  max_adjustment_stock_over: -0.05   # -5% si sobre-stock
+  max_adjustment_stock_under: 0.03   # +3% si bajo stock crítico
+  overstock_threshold: 400      # stock > 400 = sobre-stock
+  understock_threshold: 20      # stock < 20 = bajo stock crítico
+
+matching:
+  similarity_threshold_accept: 0.85    # >= 0.85: match aceptado
+  similarity_threshold_review: 0.70    # >= 0.70: revisión manual
+  top_k_candidates: 3                  # Top 3 candidatos por producto
+  embedding_model: "all-MiniLM-L6-v2"
+
+data_quality:
+  min_price: 0.01
+  max_price: 100000.00
+  min_stock: 0
+  max_stock: 100000
+  min_margin: 0.0
+
+pipeline:
+  retry_count: 2
+  sla_minutes: 10
+  schedule: "@hourly"

@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencias de Python
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-descargar modelo de embeddings
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+
+COPY src/ ./src/
+COPY config/ ./config/
+COPY dashboard/ ./dashboard/
+
+# Add non-root user for security
+RUN useradd -m -s /bin/bash apiuser && \
+    chown -R apiuser:apiuser /app
+
+USER apiuser
+
+ENV PYTHONPATH=/app
+
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
